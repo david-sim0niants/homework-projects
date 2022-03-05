@@ -121,11 +121,11 @@ public:
 
     // a bunch of getters
 
-    inline const ElementSet & get_InputSet()     { return input_set; }
-    inline const ElementSet & get_OutputSet()    { return output_set; }
-    inline const ElementSet & get_StateSet()     { return state_set; }
-    inline const Element    & get_DefaultState() { return default_state; }
-    inline const FuncTable  & get_FuncTable()    { return function_table; }
+    inline const ElementSet & get_InputSet()     const { return input_set;      }
+    inline const ElementSet & get_OutputSet()    const { return output_set;     }
+    inline const ElementSet & get_StateSet()     const { return state_set;      }
+    inline const Element    & get_DefaultState() const { return default_state;  }
+    inline const FuncTable  & get_FuncTable()    const { return function_table; }
 
 private:
     // Set of all possible input elements.
