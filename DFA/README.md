@@ -9,7 +9,7 @@ make
 ```
 
 
-## Usage after installation
+## Usage after build
 Type `./dfa -h` or `./dfa --help` to find the cli usage.
 ### Basic usage
 ```bash
