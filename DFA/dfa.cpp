@@ -149,6 +149,7 @@ DFA::DFA(std::istream &is)
     std::cout << "\nFound " << state_set.size() << " state elements\n";
     for (auto &&element_index_pair : state_set)
         std::cout << element_index_pair.first << ", ";
+    std::cout << '\n';
 
     // Initialize function table.
     function_table = FuncTable(state_set.size(), input_set.size());
