@@ -133,22 +133,22 @@ DFA::DFA(std::istream &is)
 
     // Parse line containing state_set
     while (std::getline(is, curr_line) && curr_line.empty()) {}
-    parse_ElementSetLine(curr_line, state_set, &initial_state);
+    parse_ElementSetLine(curr_line, state_set, &default_state);
 
     // Just to get sure everything is ok.
     std::cout << "Found " << input_set.size() << " input elements\n";
     for (auto &&element_index_pair : input_set)
     {
-        std::cout << element_index_pair.first << '\n';
+        std::cout << element_index_pair.first << ", ";
     }
 
-    std::cout << "Found " << output_set.size() << " output elements\n";
+    std::cout << "\nFound " << output_set.size() << " output elements\n";
     for (auto &&element_index_pair : output_set)
-        std::cout << element_index_pair.first << '\n';
+        std::cout << element_index_pair.first << ", ";
 
-    std::cout << "Found " << state_set.size() << " state elements\n";
+    std::cout << "\nFound " << state_set.size() << " state elements\n";
     for (auto &&element_index_pair : state_set)
-        std::cout << element_index_pair.first << '\n';
+        std::cout << element_index_pair.first << ", ";
 
     // Initialize function table.
     function_table = FuncTable(state_set.size(), input_set.size());
@@ -160,11 +160,18 @@ DFA::DFA(ElementSet &&input_set, ElementSet &&output_set, ElementSet &&state_set
     : input_set(input_set), output_set(output_set), state_set(state_set), function_table(function_table) {}
 
 
-void DFA::run_Stream(std::istream &input, std::ostream &output, bool show_state)
+bool DFA::run_Stream(std::istream &input, std::ostream &output, Element &last_state, bool show_state)
+{
+    return run_Stream(input, output, default_state, last_state, show_state);
+}
+
+
+bool DFA::run_Stream(std::istream &input, std::ostream &output, const Element &initial_state, Element &last_state, bool show_state)
 {
     // get single line, interpret enter as a sign to run the inserted tape
     std::string line;
     std::getline(input, line);
+    if (line.empty()) return false;
 
     // split by commas
     std::regex line_split_regex("[^,]+");
@@ -189,4 +196,7 @@ void DFA::run_Stream(std::istream &input, std::ostream &output, bool show_state)
             output << '(' << curr_output << ',' << curr_state << "), ";
         else output << curr_output << ", ";
     }
+    // assign last state
+    last_state = curr_state;
+    return true;
 }

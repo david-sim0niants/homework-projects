@@ -80,24 +80,52 @@ public:
      * @brief Run input, assign to output.
      */
     template<typename InIter_T, typename OutIter_T>
-    void run(InIter_T src_begin, InIter_T src_end, OutIter_T dst_begin)
+    void run(InIter_T input_begin, InIter_T input_end, OutIter_T output_begin)
     {
-        auto out_it = dst_begin;
-        Element state = initial_state;
-        for (auto it = src_begin; it != src_end; ++it, ++out_it)
-        {
+        auto out_it = output_begin;
+        Element state = default_state;
+        for (auto it = input_begin; it != input_end; ++it, ++out_it)
             eval(*it, state, *out_it);
-        }
     }
+    /**
+     * @brief Run input, assign to output. Manually set initial state and receive last state.
+     */
+    template<typename InIter_T, typename OutIter_T>
+    void run(InIter_T input_begin, InIter_T input_end, OutIter_T output_begin, Element &state)
+    {
+        auto out_it = output_begin;
+        for (auto it = input_begin; it != input_end; ++it, ++out_it)
+            eval(*it, state, *out_it);
+    }
+
 
     /**
      * @brief Run input stream and pipe result to output stream.
      *
      * @param input Input stream.
      * @param output Output stream.
+     * @param last_state State that will remain after this session.
      * @param show_state If true, will show (output, state) pairs instead of just output.
      */
-    void run_Stream(std::istream &input, std::ostream &output, bool show_state = false);
+    bool run_Stream(std::istream &input, std::ostream &output, Element &last_state, bool show_state = false);
+    /**
+     * @brief Run input stream and pipe result to output stream.
+     *
+     * @param input Input stream.
+     * @param output Output stream.
+     * @param initial_state State to start with.
+     * @param last_state State that will remain after this session.
+     * @param show_state If true, will show (output, state) pairs instead of just output.
+     */
+    bool run_Stream(std::istream &input, std::ostream &output, const Element &initial_state, Element &last_state, bool show_state = false);
+
+    // a bunch of getters
+
+    inline const ElementSet & get_InputSet()     { return input_set; }
+    inline const ElementSet & get_OutputSet()    { return output_set; }
+    inline const ElementSet & get_StateSet()     { return state_set; }
+    inline const Element    & get_DefaultState() { return default_state; }
+    inline const FuncTable  & get_FuncTable()    { return function_table; }
 
 private:
     // Set of all possible input elements.
@@ -107,7 +135,7 @@ private:
     // Set of all possible state_set
     ElementSet state_set;
     // Where to start from.
-    Element initial_state;
+    Element default_state;
     // Function table
     FuncTable function_table;
 };
