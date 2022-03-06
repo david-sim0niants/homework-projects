@@ -8,38 +8,83 @@
 class HugeInt
 {
 public:
+    // Signed integer type
     using BaseInt = int;
+    // Unsigned integer type. Representation of huge int is either an array of unsigned integers or just a single unsigned integer.
     using BaseUint = unsigned int;
 
 private:
+    // Union to hold pointer to array of integers or a static single integer in order to reduce memory allocations.
     union Data
     {
-        BaseInt *ptr;
-        BaseInt static_val;
+        BaseUint *ptr; // Pointer to array of integers if the size > 0. Last bit of the last element is a sign bit.
+        // (using unsigned integers is actually easier)
+        BaseUint static_val; // Single integer if the size == 0 (technically is 1). Last bit of it is a sign bit actually.
     } data;
+    // Size of the array of integers. Equals to zero if there's only static single integer.
     size_t size;
 
+    /**
+     * @brief Private constructor to manually manage memory.
+     *
+     * @param size Size of the array that will represent huge integer.
+     * @param additional_capacity Additional capacity that'll tell to allocate more memory (size + additional_capacity)
+     * but the this->size will remain size. This's necessary for ex. in addition, where an overload may happen and we allocate 1 int more
+     * memory to store the overloaded bits. However, if an overload doesn't happen, we don't want 'to show' that the size is more than
+     * needed, because this way multiple additions will cause more unused memory to be allocated. If an overload does occur, the size will be
+     * increased to match the capacity.
+     */
     HugeInt(size_t size, size_t additional_capacity);
 
     /**
-     * @brief Get the int in the powers of 2 representation of huge int, which is multiplied by 2^(sizeof(BaseInt) * i)
+     * @brief Get i-th element from the array representation or just single integer if size == 0, i == 0.
+     * Basically - (BaseUint)(huge_int >> ((sizeof(BaseUint) * i))).
      */
-    BaseInt get_BaseInt(size_t i) const
+    inline BaseUint get_BaseUint(size_t i) const
     {
         if (size > 0)
         {
             if (i < size)
                 return data.ptr[i];
-            else 0;
+            else return 0;
         }
         else { return data.static_val; }
     }
 
+    /**
+     * @brief Set i-th element from the array representation or just single integer if size == 0, i == 0.
+     */
+    inline void set_BaseUint(size_t i, BaseUint base_int)
+    {
+        if (size > 0)
+        {
+            if (i < size)
+                data.ptr[i] = base_int;
+        }
+        else if (i == 0)
+            data.static_val = base_int;
+    }
+
+    /**
+     * @brief If size == 0, it just means that we're using data.static_val but techincally size is 1 in this case.
+     * @note There can be a case when size and technical size == 1 and the data is stored in dynamic array of just single element.
+     * However, in that case 'techincally' we don't care.
+     */
+    inline size_t get_TechnicalSize() const
+    {
+        if (size > 0)
+            return size;
+        else
+            return 1;
+    }
+
 public:
+    // Initialize from base integer.
     HugeInt(BaseInt value);
+    // Initialize from string
     HugeInt(std::string value);
 
-
+    // HugeInt stores (may store) a resource, so the big 5 rule
     HugeInt(const HugeInt &other);
     HugeInt(HugeInt &&other) noexcept;
     HugeInt& operator=(const HugeInt &rhs);
