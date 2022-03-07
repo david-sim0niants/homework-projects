@@ -3,15 +3,18 @@
 
 
 #include <string>
+#include <cstdint>
 
 
 class HugeInt
 {
 public:
     // Signed integer type
-    using BaseInt = int;
+    using BaseInt = int32_t;
     // Unsigned integer type. Representation of huge int is either an array of unsigned integers or just a single unsigned integer.
-    using BaseUint = unsigned int;
+    using BaseUint = uint32_t;
+    // Double base unsigned integer type. Used to handle multiplication overloads.
+    using DoubleBaseUint = uint64_t;
 
 private:
     // Union to hold pointer to array of integers or a static single integer in order to reduce memory allocations.
@@ -78,6 +81,38 @@ private:
             return 1;
     }
 
+    /**
+     * @brief Clear, make zero.
+     */
+    inline void clear()
+    {
+        if (size > 0)
+            std::fill(data.ptr, data.ptr + size, 0);
+        else
+            data.static_val = 0;
+    }
+
+    /**
+     * @brief Copy and shift contents of this to another huge integer, without changing its size.
+     */
+    inline void copy_and_shift_ContentsTo(HugeInt &other, size_t shift) const
+    {
+        if (size > 0)
+            std::copy(data.ptr, data.ptr + size, other.data.ptr + shift);
+        else if (other.size > 0)
+            other.data.ptr[shift] = data.static_val;
+        else
+            other.data.static_val = shift > 0 ? 0 : data.static_val;
+    }
+    /**
+     * @brief Add src to dst, assuming dst is long enough to handle overloads.
+     */
+    static void sum(HugeInt &dst, const HugeInt &src);
+    /**
+     * @brief Multiply a huge int by a base int.
+     */
+    static void multiply_by_int(HugeInt &a, BaseUint b);
+
 public:
     // Initialize from base integer.
     HugeInt(BaseInt value);
@@ -94,6 +129,9 @@ public:
 
     HugeInt operator+(const HugeInt &arg) const;
     HugeInt operator*(const HugeInt &arg) const;
+
+
+    std::string to_String() const;
 };
 
 
