@@ -2,6 +2,9 @@
 #include <vector>
 #include <sstream>
 #include <iomanip>
+#include <regex>
+#include <limits>
+#include <cmath>
 
 
 
@@ -11,9 +14,52 @@ HugeInt::HugeInt(BaseInt val) : size(0)
 }
 
 
+static void extract_FirstNumber(std::string &value, bool &is_negative)
+{
+    std::regex regex("(\\d+|-\\d+)");
+    std::sregex_iterator first_num(value.begin(), value.end(), regex);
+    if (first_num == std::sregex_iterator())
+        value = "";
+
+    value = first_num->str();
+    is_negative = value[0] == '-';
+}
+
+
+static constexpr double log_2_10 = 3.32192809;
+
+
+
 HugeInt::HugeInt(std::string value)
 {
-    //
+    bool is_negative;
+    extract_FirstNumber(value, is_negative);
+
+    size_t num_digits = value.size();
+    if (is_negative && num_digits > 0)
+        --num_digits;
+
+    size = std::ceil(value.size() * (log_2_10 / (sizeof(BaseUint) * 8)));
+    if (size > 1)
+        data.ptr = new BaseUint[size]();
+    else
+    {
+        size = 0; data.static_val = 0;
+    }
+
+    HugeInt power_of_10(size, 0), decimal_base(size, 0);
+    power_of_10.set_BaseUint(0, 1);
+
+    auto value_rend = value.rend() - int(is_negative);
+
+    for (auto it = value.rbegin(); it != value_rend; ++it)
+    {
+        BaseUint digit = *it - '0';
+        power_of_10.copy_and_shift_ContentsTo(decimal_base, 0);
+        multiply_by_BaseUint(decimal_base, is_negative ? -digit : digit);
+        sum(*this, decimal_base);
+        multiply_by_BaseUint(power_of_10, 10);
+    }
 }
 
 
@@ -115,29 +161,36 @@ static inline char sign(HugeInt::BaseInt x)
  */
 static inline HugeInt::BaseUint sum_BaseUints(HugeInt::BaseUint a, HugeInt::BaseUint b, char &c)
 {
+    HugeInt::BaseUint s = a + b + c;
     c = b >= ~c || (b + c) >= ~a;
-    return a + b + c;
+    return s;
 }
 
 
-void HugeInt::sum(HugeInt &a, const HugeInt &b)
+char HugeInt::sum(HugeInt &a, const HugeInt &b, char carry)
 {
-    char carry = 0;
     for (size_t i = 0; i < a.get_TechnicalSize(); ++i)
         a.set_BaseUint(i, sum_BaseUints(a.get_BaseUint(i), b.get_BaseUint(i), carry));
+    return carry;
+}
 
-    char a_sign = sign(a.get_BaseUint(a.size - 1));
-    char b_sign = sign(b.get_BaseUint(b.size - 1));
 
-    if (carry && a_sign * b_sign > 0)
+void HugeInt::multiply(const HugeInt &a, const HugeInt &b, HugeInt &c, HugeInt &temp_var)
+{
+    size_t a_size = a.get_TechnicalSize();
+    size_t b_size = b.get_TechnicalSize();
+
+    for (size_t i = 0; i < b_size; ++i)
     {
-        a.set_BaseUint(a.size, a_sign); // set last integer as a 'sign integer'
-        ++a.size; // the signed sum overloaded, so the size now matches capacity
+        temp_var.clear();
+        a.copy_and_shift_ContentsTo(temp_var, i);
+        multiply_by_BaseUint(temp_var, b.get_BaseUint(i));
+        sum(c, temp_var);
     }
 }
 
 
-void HugeInt::multiply_by_int(HugeInt &a, BaseUint b)
+void HugeInt::multiply_by_BaseUint(HugeInt &a, BaseUint b)
 {
     DoubleBaseUint m = 0;
     static constexpr size_t base_int_bits = sizeof(BaseUint) * 8;
@@ -175,12 +228,9 @@ HugeInt HugeInt::operator+(const HugeInt &arg) const
     else
     {
         // case when at least one of operands is already 'huge' and dynamically stored and then so is the sum of them
-        HugeInt result(std::max(arg.size, size), 1); // 1 int more capacity for overloaded sum
-        char carry = 0;
-        for (size_t i = 0; i < result.size; ++i)
-        {
-            result.set_BaseUint(i, sum_BaseUints(get_BaseUint(i), arg.get_BaseUint(i), carry));
-        }
+        HugeInt result(std::max(size, arg.size), 1); // 1 int more capacity for overloaded sum
+        copy_and_shift_ContentsTo(result, 0);
+        char carry = sum(result, arg, 0);
 
         char this_sign = sign(get_BaseUint(result.size - 1));
         char arg_sign = sign(arg.get_BaseUint(result.size - 1));
@@ -202,14 +252,8 @@ HugeInt HugeInt::operator*(const HugeInt &arg) const
     HugeInt result(size + arg_size, 0);
     HugeInt product_by_int(result.size, 0);
 
+    multiply(*this, arg, result, product_by_int);
 
-    for (size_t i = 0; i < arg_size; ++i)
-    {
-        product_by_int.clear();
-        copy_and_shift_ContentsTo(product_by_int, i);
-        multiply_by_int(product_by_int, arg.get_BaseUint(i));
-        sum(result, product_by_int);
-    }
     return result;
 }
 
@@ -226,4 +270,10 @@ std::string HugeInt::to_String() const
             break;
     }
     return ss.str();
+}
+
+
+std::ostream& operator<<(std::ostream &os, const HugeInt &x)
+{
+    return os << x.to_String();
 }

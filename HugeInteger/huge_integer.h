@@ -4,6 +4,8 @@
 
 #include <string>
 #include <cstdint>
+#include <ostream>
+
 
 
 class HugeInt
@@ -51,7 +53,9 @@ private:
                 return data.ptr[i];
             else return 0;
         }
-        else { return data.static_val; }
+        else if (i == 0)
+            return data.static_val;
+        else return 0;
     }
 
     /**
@@ -104,16 +108,21 @@ private:
         else
             other.data.static_val = shift > 0 ? 0 : data.static_val;
     }
-    /**
-     * @brief Add src to dst, assuming dst is long enough to handle overloads.
-     */
-    static void sum(HugeInt &dst, const HugeInt &src);
-    /**
-     * @brief Multiply a huge int by a base int.
-     */
-    static void multiply_by_int(HugeInt &a, BaseUint b);
-
 public:
+    /**
+     * @brief Add 'b' to 'a' with a carry. Assuming 'a' is long enough to not overload. Returns a new carry.
+     */
+    static char sum(HugeInt &a, const HugeInt &b, char carry = 0);
+    /**
+     * @brief Multiply 'a' and 'b' and store in 'c' using a temporary variable of the same size. Assuming all of them are
+     * long enough to not overload.
+     */
+    static void multiply(const HugeInt &a, const HugeInt &b, HugeInt &c, HugeInt &temp_var);
+    /**
+     * @brief Multiply a huge int by a base int. Assuming 'a' is long enough to handle overloads.
+     */
+    static void multiply_by_BaseUint(HugeInt &a, BaseUint b);
+
     // Initialize from base integer.
     HugeInt(BaseInt value);
     // Initialize from string
@@ -133,6 +142,9 @@ public:
 
     std::string to_String() const;
 };
+
+
+std::ostream& operator<<(std::ostream &os, const HugeInt &x);
 
 
 #endif

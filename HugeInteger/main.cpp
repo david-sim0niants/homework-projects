@@ -4,12 +4,6 @@
 #include "huge_integer.h"
 
 
-std::ostream& operator<<(std::ostream &os, const HugeInt &x)
-{
-    return os << x.to_String();
-}
-
-
 
 int main()
 {
@@ -27,4 +21,25 @@ int main()
     std::cout << a << " * " << b << " = " << m << '\n';
 
     std::cout << a << " * " << m << " = " << a * m << '\n';
+
+
+    HugeInt p = (std::string)"213575798127510924769817501925972180512";
+    HugeInt new_p = p;
+    HugeInt::BaseUint t = (1 << 29) + (1 << 30) + 1;
+    HugeInt::multiply_by_BaseUint(new_p, t);
+    std::cout << p << " * " << t << " = " << new_p << '\n';
+
+    new_p = p;
+    HugeInt::sum(new_p, t);
+    std::cout << p << " + " << t << " = " << new_p << '\n';
+
+
+    std::string x_s, y_s;
+    while (true)
+    {
+        std::cin >> x_s >> y_s;
+        HugeInt x = x_s;
+        HugeInt y = y_s;
+        std::cout << x << " * " << y << " = " << x * y << '\n';
+    }
 }
