@@ -16,7 +16,7 @@ int main()
     HugeInt m = n * k;
 
     std::cout << n << " * " << k << " = " << m << '\n';
-    
+
     m = a * b;
     std::cout << a << " * " << b << " = " << m << '\n';
 
