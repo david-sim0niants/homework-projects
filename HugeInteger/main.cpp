@@ -23,17 +23,6 @@ int main()
     std::cout << a << " * " << m << " = " << a * m << '\n';
 
 
-    HugeInt p = (std::string)"213575798127510924769817501925972180512";
-    HugeInt new_p = p;
-    HugeInt::BaseUint t = (1 << 29) + (1 << 30) + 1;
-    HugeInt::multiply_by_BaseUint(new_p, t);
-    std::cout << p << " * " << t << " = " << new_p << '\n';
-
-    new_p = p;
-    HugeInt::sum(new_p, t);
-    std::cout << p << " + " << t << " = " << new_p << '\n';
-
-
     std::string x_s, y_s;
     while (true)
     {

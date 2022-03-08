@@ -108,7 +108,6 @@ private:
         else
             other.data.static_val = shift > 0 ? 0 : data.static_val;
     }
-public:
     /**
      * @brief Add 'b' to 'a' with a carry. Assuming 'a' is long enough to not overload. Returns a new carry.
      */
@@ -123,6 +122,7 @@ public:
      */
     static void multiply_by_BaseUint(HugeInt &a, BaseUint b);
 
+public:
     // Initialize from base integer.
     HugeInt(BaseInt value);
     // Initialize from string
