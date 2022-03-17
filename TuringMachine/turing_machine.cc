@@ -25,7 +25,7 @@ TuringMachine::TuringMachine(std::istream &is)
     size_t symbol_i = 0;
     for (char symbol : line)
     {
-        if (symbol != ',' && symbol != ' ' && symbol_set.find(symbol) == symbol_set.end())
+        if (symbol != ',' && symbol != ' ' && symbol != '|' && symbol_set.find(symbol) == symbol_set.end())
             symbol_set.emplace(symbol, symbol_i++);
     }
 
@@ -107,7 +107,7 @@ TuringMachine::TuringMachine(std::istream &is)
 }
 
 
-void TuringMachine::print_Info(std::ostream &os)
+void TuringMachine::print_Info(std::ostream &os) const
 {
     os << "Symbol set: ";
     for (auto &&symbol : symbol_set)
@@ -122,12 +122,74 @@ void TuringMachine::print_Info(std::ostream &os)
     {
         for (size_t j = 0; j < symbol_set.size(); ++j)
         {
-            Decision &decision = state_diagram[decision_i++];
+            const Decision &decision = state_diagram[decision_i++];
             os << decision.symbol << ',' << state_set[decision.state] << ',' << (decision.direction > 0 ? 'r' : 'l');
             if (j + 1 < symbol_set.size())
                 os << " | ";
             else
                 os << '\n';
         }
+    }
+}
+
+
+void TuringMachine::run_Tape(std::deque<char> &tape, std::deque<char>::iterator &position, size_t &state, size_t max_num_steps) const
+{
+    size_t halt_state = state_set.size() - 1;
+
+    if (position == tape.end())
+        throw TuringMachine_exec_error("Head pointing at one cell past the end of tape");
+    if (position == tape.begin() - 1)
+        throw TuringMachine_exec_error("Head pointing at one cell before the start of tape");
+
+    bool wait_halt = max_num_steps == 0;
+    size_t step = 0;
+    while (state != halt_state && (wait_halt || step < max_num_steps))
+    {
+        Decision decision;
+        decide(*position, state, decision);
+
+        if (decision.direction > 0)
+        {
+            if (position == tape.end() - 1)
+            {
+                tape.push_back(0);
+                position = tape.end() - 1;
+            }
+            else
+            {
+                ++position;
+            }
+        }
+        else
+        {
+            if (position == tape.begin())
+            {
+                tape.push_front(0);
+                position = tape.begin();
+            }
+            else
+            {
+                --position;
+            }
+        }
+        *position = decision.symbol;
+        state = decision.state;
+        ++step;
+    }
+}
+
+
+void convert_StringTape_to_DequeTape(
+    const std::string &tape_str, std::deque<char> &tape, size_t &start_pos_i, const std::unordered_map<char, size_t> &symbol_set
+)
+{
+    size_t tape_pos = 0;
+    for (char symbol : tape_str)
+    {
+        if (symbol == '|')
+            start_pos_i = tape_pos;
+        else if (symbol_set.find(symbol) != symbol_set.end())
+            tape.push_back(symbol);
     }
 }
