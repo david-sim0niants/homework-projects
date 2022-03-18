@@ -1,6 +1,7 @@
 #include "turing_machine.h"
 #include <sstream>
 #include <algorithm>
+#include <unordered_map>
 
 
 /**
@@ -22,21 +23,33 @@ TuringMachine::TuringMachine(std::istream &is)
     if (line.empty())
         throw TuringMachine_stream_parse_error("Empty file, no symbol set could be found.");
 
+    // read the line containing symbol set
     size_t symbol_i = 0;
     for (char symbol : line)
     {
-        if (symbol != ',' && symbol != ' ' && symbol != '|' && symbol_set.find(symbol) == symbol_set.end())
+        // whitespaces, commas and vertical bars aren't allowed and are used as seperators
+        // also duplicate symbols are ignored
+        if (symbol != ',' && !std::iswspace(symbol) && symbol != '|' && symbol_set.find(symbol) == symbol_set.end())
+        {
             symbol_set.emplace(symbol, symbol_i++);
+            if (symbol_set.size() == 1)
+                default_symbol = symbol; // set the first symbol as the default symbol
+        }
     }
 
 
+    // read the line containing state names (that are strings)
+
+    // temporary unordered map that maps state names to their indices
     std::unordered_map<std::string, size_t> state_to_index_map;
+    /* Note that the states are indexed by the order of their appearance and their indices are used instead of string names because
+    indices are more lightweight and the states aren't not assigned or read by the outside world. However, their string names are
+    saved for demonstration and debug purposes. */
     size_t state_symbol_i = 0;
 
     while (std::getline(is, line) && line.empty()) {}
     if (line.empty())
         throw TuringMachine_stream_parse_error("No state set could be found.");
-
 
     std::istringstream line_ss(line);
     std::string state;
@@ -51,6 +64,9 @@ TuringMachine::TuringMachine(std::istream &is)
     }
 
 
+    // read lines containing state diagram
+    // cell format - symbol,state,direction where direction is either l (left) or r (right).
+
     size_t num_symbols = symbol_set.size();
     size_t num_states = state_set.size();
 
@@ -58,16 +74,19 @@ TuringMachine::TuringMachine(std::istream &is)
 
     size_t decision_i = 0;
 
+    // read row
     while (std::getline(is, line))
     {
         line_ss.clear();
         line_ss.str(line);
 
+        // read cell
         std::string decision_str;
         while (std::getline(line_ss, decision_str, '|') && !decision_str.empty())
         {
             std::istringstream decision_ss(decision_str);
 
+            // read 3 'words' in the cell
             std::string decision_words[3] = {};
             for (size_t i = 0; i < 3; ++i)
             {
@@ -103,7 +122,7 @@ TuringMachine::TuringMachine(std::istream &is)
     }
 
     if (decision_i < state_diagram.size())
-        throw TuringMachine_stream_parse_error("Incomplete state diagram. Not all cells were present.");
+        throw TuringMachine_stream_parse_error("Incomplete state diagram. Not the all cells were present.");
 }
 
 
@@ -133,63 +152,59 @@ void TuringMachine::print_Info(std::ostream &os) const
 }
 
 
-void TuringMachine::run_Tape(std::deque<char> &tape, std::deque<char>::iterator &position, size_t &state, size_t max_num_steps) const
+void TuringMachine::exec_Tape(std::deque<char> &tape, std::deque<char>::iterator &head, size_t &state, size_t max_num_steps) const
 {
+    // halt state is the last state
     size_t halt_state = state_set.size() - 1;
 
-    if (position == tape.end())
+    if (tape.empty())
+    {
+        state = halt_state;
+        return;
+    }
+    if (head == tape.end())
         throw TuringMachine_exec_error("Head pointing at one cell past the end of tape");
-    if (position == tape.begin() - 1)
+    if (head == tape.begin() - 1)
         throw TuringMachine_exec_error("Head pointing at one cell before the start of tape");
 
-    bool wait_halt = max_num_steps == 0;
+    bool wait_halt = max_num_steps == 0; // run without limiting number of steps ?
     size_t step = 0;
+
     while (state != halt_state && (wait_halt || step < max_num_steps))
     {
         Decision decision;
-        decide(*position, state, decision);
+        decide(*head, state, decision);
 
+        *head = decision.symbol; // assign new head
+        state = decision.state; // assign new state
+
+        // go left or right
         if (decision.direction > 0)
         {
-            if (position == tape.end() - 1)
+            // push back of the tape if already at the end of the tape and must go to right
+            if (head == tape.end() - 1)
             {
-                tape.push_back(0);
-                position = tape.end() - 1;
+                tape.push_back(default_symbol);
+                head = tape.end() - 1;
             }
             else
             {
-                ++position;
+                ++head;
             }
         }
         else
         {
-            if (position == tape.begin())
+            // push front of the tape if already at the beginning of the tape and must go to left
+            if (head == tape.begin())
             {
-                tape.push_front(0);
-                position = tape.begin();
+                tape.push_front(default_symbol);
+                head = tape.begin();
             }
             else
             {
-                --position;
+                --head;
             }
         }
-        *position = decision.symbol;
-        state = decision.state;
         ++step;
-    }
-}
-
-
-void convert_StringTape_to_DequeTape(
-    const std::string &tape_str, std::deque<char> &tape, size_t &start_pos_i, const std::unordered_map<char, size_t> &symbol_set
-)
-{
-    size_t tape_pos = 0;
-    for (char symbol : tape_str)
-    {
-        if (symbol == '|')
-            start_pos_i = tape_pos;
-        else if (symbol_set.find(symbol) != symbol_set.end())
-            tape.push_back(symbol);
     }
 }

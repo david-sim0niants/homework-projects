@@ -12,6 +12,7 @@ int main(int argc, const char *argv[])
 
     if (argc > 1)
     {
+        // find file
         file = std::ifstream(argv[1]);
         if (!file)
             std::cerr << "Error couldn't open file " << argv[1] << ". Using stdin.\n";
@@ -20,6 +21,7 @@ int main(int argc, const char *argv[])
 
         if (argc > 2)
         {
+            // enable debug mode
             debug_mode = argv[2][0] == 'd';
         }
     }
@@ -29,24 +31,45 @@ int main(int argc, const char *argv[])
 
     turing_machine.print_Info(std::cout);
 
+    std::cout << "INPUT:Tape>";
     while (std::cin)
     {
         std::string tape_str;
         std::getline(std::cin, tape_str);
 
-        std::deque<char> tape;
-        size_t start_pos_i = 0;
-        convert_StringTape_to_DequeTape(tape_str, tape, start_pos_i, turing_machine.get_SymbolSet());
-        std::deque<char>::iterator pos = tape.begin() + start_pos_i;
+        std::deque<char> tape(tape_str.size());
+        std::copy(tape_str.begin(), tape_str.end(), tape.begin());
+
+        std::deque<char>::iterator head = tape.begin();
 
         size_t state = 0;
-        if (debug_mode)
+
+        try
         {
-            size_t halt_state = turing_machine.get_StateSet().size();
-            while (state != halt_state)
+            if (debug_mode)
             {
-                turing_machine.run_Tape(tape, pos, state, 1);
-                std::cout << "DEBUG:Tape>";
+                size_t halt_state = turing_machine.get_StateSet().size() - 1;
+                while (state != halt_state)
+                {
+                    turing_machine.exec_Tape(tape, head, state, 1); // execute single step
+                    size_t head_pos = std::distance(tape.begin(), head); // find head position
+                    size_t symbol_i = 0;
+
+                    std::cout << "DEBUG:Tape>";
+                    for (char symbol : tape)
+                    {
+                        if (symbol_i == head_pos)
+                            std::cout << '|'; // print vertical bar before the symbol pointed by the head
+                        std::cout << symbol;
+                        ++symbol_i;
+                    }
+                    std::cout << " State:" << turing_machine.get_StateSet()[state] << " Head:" << head_pos << std::endl;
+                }
+            }
+            else
+            {
+                turing_machine.exec_Tape(tape, head, state, 0);
+                std::cout << "FINAL:Tape>";
                 for (char symbol : tape)
                 {
                     std::cout << symbol;
@@ -54,15 +77,10 @@ int main(int argc, const char *argv[])
                 std::cout << std::endl;
             }
         }
-        else
+        catch (const TuringMachine_exec_error &e)
         {
-            turing_machine.run_Tape(tape, pos, state, 0);
-            std::cout << "Tape>";
-            for (char symbol : tape)
-            {
-                std::cout << symbol;
-            }
-            std::cout << std::endl;
+            std::cerr << "Error: " << e.what() << '\n';
         }
+        std::cout << "INPUT:Tape>";
     }
 }
