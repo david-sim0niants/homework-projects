@@ -29,7 +29,8 @@ int main(int argc, const char *argv[])
     std::istream &is = read_from_file ? file : std::cin;
     TuringMachine turing_machine(is);
 
-    turing_machine.print_Info(std::cout);
+    if (turing_machine.get_StateSet().size() <= (1 << 17) + 1)
+        turing_machine.print_Info(std::cout);
 
     std::cout << "INPUT:Tape>";
     while (std::cin)
