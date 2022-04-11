@@ -31,8 +31,8 @@ int main(int argc, const char *argv[])
     program_file.seekg(0, std::ios::beg);
 
 
-    VirtualMachine vm (stream_size * 2, &std::cin, &std::cout);
+    VirtualMachine vm (1 << 20, &std::cin, &std::cout);
     vm.upload_Program(program_file);
-
+    vm.run();
 }
 
