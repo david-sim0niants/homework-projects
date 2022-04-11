@@ -22,6 +22,7 @@ int main(int argc, const char *argv[])
     if (!program_file)
     {
         std::cerr << "Error: no file at location " << program_filename << '\n';
+        std::terminate();
     }
 
 
