@@ -30,14 +30,10 @@ void VirtualMachine::upload_Program(std::istream &program)
 }
 
 
-uint32_t VirtualMachine::get_SrcValue(uint8_t opcode, uint8_t src)
+uint32_t VirtualMachine::get_SrcValue(uint8_t src)
 {
     uint32_t val;
-    if (opcode & FIRST_IMMEDIATE)
-    {
-        val = src;
-    }
-    else if (src < NUM_GP_REGISTERS)
+    if (src < NUM_GP_REGISTERS)
     {
         val = gp_registers[src];
     }
@@ -114,6 +110,7 @@ uint32_t VirtualMachine::op_AND(uint32_t src1, uint32_t src2) { return src1 & sr
 uint32_t VirtualMachine::op_OR (uint32_t src1, uint32_t src2) { return src1 | src2; }
 uint32_t VirtualMachine::op_NOT(uint32_t src1, uint32_t src2) { return ~src1;       }
 uint32_t VirtualMachine::op_XOR(uint32_t src1, uint32_t src2) { return src1 ^ src2; }
+uint32_t VirtualMachine::op_MUL(uint32_t src1, uint32_t src2) { return src1 * src2; }
 
 void VirtualMachine::op_IF_EQ           (uint32_t src1, uint32_t src2, uint32_t dst)
 {
@@ -164,8 +161,8 @@ void VirtualMachine::op_IF_GREATER_OR_EQ(uint32_t src1, uint32_t src2, uint32_t 
 }
 
 
-VirtualMachine::ALU_op VirtualMachine::ALU_ops[6] = {
-    op_ADD, op_SUB, op_AND, op_OR, op_NOT, op_XOR
+VirtualMachine::ALU_op VirtualMachine::ALU_ops[7] = {
+    op_ADD, op_SUB, op_AND, op_OR, op_NOT, op_XOR, op_MUL
 };
 
 VirtualMachine::COND_op VirtualMachine::COND_ops[6] = {
@@ -182,12 +179,29 @@ void VirtualMachine::exec()
 {
     if (counter + 4 > memory.size())
     {
-        counter = 0;
+        throw mem_out_of_bounds_error("Got out of bounds of memory while trying to read the next instruction.");
     }
     Instruction instruction { memory[counter++], memory[counter++], memory[counter++], memory[counter++] };
 
-    uint32_t src1_val = get_SrcValue(instruction.opcode, instruction.src1);
-    uint32_t src2_val = get_SrcValue(instruction.opcode, instruction.src2);
+    uint32_t src1_val;
+    if (instruction.opcode & FIRST_IMMEDIATE)
+    {
+        src1_val = instruction.src1;
+    }
+    else
+    {
+        src1_val = get_SrcValue(instruction.src1);
+    }
+
+    uint32_t src2_val;
+    if (instruction.opcode & SECOND_IMMEDIATE)
+    {
+        src2_val = instruction.src2;
+    }
+    else
+    {
+        src2_val = get_SrcValue(instruction.src2);
+    }
 
     if (instruction.opcode & 32)
     {
@@ -197,14 +211,14 @@ void VirtualMachine::exec()
             throw invalid_opcode_error("Invalid opcode - " + std::to_string(instruction.opcode));
         }
 
-        uint32_t dst_val = get_SrcValue(instruction.opcode, instruction.dst);
+        uint32_t dst_val = get_SrcValue(instruction.dst);
         (this->*(COND_ops[cond_op_index]))(src1_val, src2_val, dst_val);
     }
     else
     {
         uint32_t alu_op_index = (instruction.opcode & ~FIRST_IMMEDIATE & ~SECOND_IMMEDIATE);
 
-        if (alu_op_index >= 6)
+        if (alu_op_index >= 7)
         {
             throw invalid_opcode_error("Invalid opcode - " + std::to_string(instruction.opcode));
         }
