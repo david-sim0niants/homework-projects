@@ -1,14 +1,21 @@
 #include "assembler.h"
+
 #include <sstream>
 #include <limits>
+#include <string>
 #include <unordered_map>
+#include <optional>
 
 
 
-struct AssemblyBuildState
+using StringToIndexMap = std::unordered_map<std::string, unsigned int>;
+
+struct AssemblyParseState
 {
-    std::unordered_map<std::string, unsigned int> &label_to_index_map;
-    std::unordered_map<std::string, unsigned int> &const_to_index_map;
+    std::istream &code;
+    StringToIndexMap &label_to_index_map;
+    StringToIndexMap &const_to_index_map;
+    std::vector<std::string> &messages;
 };
 
 
@@ -67,7 +74,7 @@ static bool check_Identifier(const char *str, size_t num_chars)
     return true;
 }
 
-static bool check_Label(std::string &str)
+static bool check_LabelDef(std::string &str)
 {
     if (str.back() == ':')
     {
@@ -80,73 +87,151 @@ static bool check_Label(std::string &str)
 }
 
 
-static Instruction parse_Instruction(std::istream &code, AssemblyBuildState &build_state)
+static unsigned int check_Register(const std::string &reg)
 {
-    Instruction instruction;
-
-    enum Expect
+    if (reg.front() == 'r' || reg.front() == 'R')
     {
-        EXPECT_LABEL = 1,
-        EXPECT_CONST_DEF = 2,
-        EXPECT_OP = 4,
-        EXPECT_REG = 8,
-        EXPECT_ADDR = 16,
-        EXPECT_IMM = 32,
-        EXPECT_IDF = 64
-    };
+        size_t next_char_i;
+        int reg_i = std::stoi(reg.substr(1, reg.size() - 1), &next_char_i);
 
-    static constexpr Expect expect_beg = Expect(EXPECT_LABEL | EXPECT_CONST_DEF | EXPECT_OP);
-    static constexpr Expect expect_src = Expect(EXPECT_REG | EXPECT_ADDR | EXPECT_IMM | EXPECT_IDF);
-    static constexpr Expect expect_dst = Expect(EXPECT_REG | EXPECT_ADDR | EXPECT_IDF);
-
-
-    enum ReadState
-    {
-        READ_NONE,
-        READ_LABEL,
-        READ_CONST_DEF,
-        READ_OP,
-        READ_SRC1,
-        READ_SRC2,
-        READ_DST
-    };
-
-
-    Expect expect = expect_beg;
-    ReadState read_state = READ_NONE;
-
-    while (code)
-    {
-        std::string word;
-        code >> word;
-
-        if (word[0] == ';') // comment ; hit
+        if (next_char_i < reg.size() - 1 || reg_i < 0 || reg_i >= NUM_REGISTERS)
         {
-            code.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-            continue;
+            return NUM_REGISTERS; // return number of registers in case of fail
+        }
+        else
+        {
+            return reg_i;
+        }
+    }
+    else
+    {
+        return NUM_REGISTERS;
+    }
+}
+
+static unsigned int check_Address(const std::string &addr)
+{
+    size_t next_char_i = 0;
+    int parsed_addr = std::stoi(addr, &next_char_i);
+
+    if (next_char_i >= addr.size() && NUM_REGISTERS <= parsed_addr && parsed_addr < INSTRUCTION_OPERAND_SIZE)
+    {
+        return parsed_addr;
+    }
+    else
+    {
+        return INSTRUCTION_OPERAND_SIZE;
+    }
+}
+
+static std::optional<MemoryLocation> check_MemoryLocation(const std::string &mem_loc)
+{
+    unsigned int parsed_mem_loc = check_Register(mem_loc);
+    if (parsed_mem_loc != NUM_REGISTERS)
+    {
+        return MemoryLocation{ static_cast<unsigned char>(parsed_mem_loc)};
+    }
+
+    parsed_mem_loc = check_Address(mem_loc);
+    if (parsed_mem_loc != INSTRUCTION_OPERAND_SIZE)
+    {
+        return MemoryLocation{ static_cast<unsigned char>(parsed_mem_loc)};
+    }
+
+    return {};
+}
+
+static unsigned int check_Immediate(const std::string &immediate)
+{
+    if (immediate.front() == '$')
+    {
+        size_t next_char_i = 0;
+        int parsed_imm = std::stoi(immediate.substr(1, immediate.size() - 1), &next_char_i);
+
+        if (next_char_i >= immediate.size() - 1)
+        {
+            return parsed_imm;
+        }
+    }
+    return INSTRUCTION_OPERAND_SIZE;
+}
+
+static std::optional<SrcType> check_SrcOperand(const std::string &token, AssemblyParseState &parse_state)
+{
+    auto mem_loc = check_MemoryLocation(token);
+    if (mem_loc.has_value())
+    {
+        return mem_loc.value();
+    }
+
+    if (check_Identifier(token.c_str(), token.size()))
+    {
+        auto found_it = parse_state.label_to_index_map.find(token);
+        if (found_it != parse_state.label_to_index_map.end())
+        {
+            return Label{found_it->second};
         }
 
-        if (expect & EXPECT_OP)
+        found_it = parse_state.const_to_index_map.find(token);
+        if (found_it != parse_state.const_to_index_map.end())
         {
-            Op op = check_Op(word);
-            if (op != Op::NONE)
-            {
-                instruction.op = op;
-                expect = expect_src;
-                read_state = READ_OP;
-            }
+            return Constant{found_it->second};
         }
-        else if (expect & EXPECT_LABEL)
+    }
+    else
+    {
+        unsigned int immediate = check_Immediate(token);
+        if (immediate != INSTRUCTION_OPERAND_SIZE)
         {
-            if (check_Label(word))
-            {
-                auto found_it = build_state.label_to_index_map.find(word);
-            }
+            return Immediate{immediate};
         }
     }
 
-    return instruction;
+    return {};
 }
+
+
+static bool assign_String(const std::string &str, StringToIndexMap &string_to_index_map, size_t &index)
+{
+    auto found_it = string_to_index_map.find(str);
+    if (found_it == string_to_index_map.end())
+    {
+        index = string_to_index_map.size();
+        string_to_index_map[str] = index;
+        return true;
+    }
+    return false;
+}
+
+
+static const char
+*label_redefinition_error = "Error: redefinition of the same label",
+*missing_operands_in_instr_error = "Error: some operands are missing"
+                                  "to form a complete instruction.";
+
+
+using MaybeInstr = std::optional<Instruction>;
+
+
+static MaybeInstr parse_Instruction_from_Op(Op op, AssemblyParseState &parse_state)
+{
+    auto &code = parse_state.code;
+    auto log_error = [&parse_state]() {
+        parse_state.messages.push_back(missing_operands_in_instr_error);
+    };
+
+    if (!code)
+    {
+        log_error();
+        return {};
+    }
+
+    std::string token;
+    code >> token;
+
+    auto src1 = check_SrcOperand(token, parse_state);
+}
+
 
 
 Assembly parse_Assembly(std::istream &code)
@@ -155,15 +240,13 @@ Assembly parse_Assembly(std::istream &code)
 
     while (code)
     {
-        std::string line;
-        std::getline(code, line);
+        std::string word;
+        code >> word;
 
-        if (line.empty())
+        if (check_LabelDef(word))
         {
-            continue;
-        }
 
-        std::istringstream line_ss {line};
+        }
     }
 
     return assembly;
@@ -173,3 +256,4 @@ Assembly parse_Assembly(std::istream &code)
 void assemble(std::istream &code, std::ostream &output)
 {
 }
+

@@ -24,13 +24,13 @@ constexpr unsigned int INSTRUCTION_OPERAND_SIZE = sizeof(unsigned char);
 
 // between [0,NUM_REGISTERS) - register index
 // between [NUM_REGISTERS,INSTRUCTION_OPERAND_SIZE] - RAM address
-using MemoryLocation = unsigned char;
+struct MemoryLocation { unsigned char value; };
 
-using Immediate = unsigned int;
+struct Immediate      { unsigned int  value; };
 
-using Label = unsigned int;
+struct Label          { unsigned int  value; };
 
-using Constant = unsigned int;
+struct Constant       { unsigned int  value; };
 
 
 using SrcType = std::variant<MemoryLocation, Immediate, Label, Constant>;
