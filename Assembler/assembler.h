@@ -9,9 +9,9 @@
 
 
 
-enum OpType
+enum class Op
 {
-    ADD, SUB, OR, NOT, AND, XOR, MUL, JE, JNE, JLT, JLE, JGT, JGE, MOV
+    NONE, ADD, SUB, OR, NOT, AND, XOR, MUL, JE, JNE, JLT, JLE, JGT, JGE, MOV
 };
 
 
@@ -22,23 +22,19 @@ constexpr unsigned int COUNTER_INDEX = NUM_GP_REGISTERS + 1;
 constexpr unsigned int INSTRUCTION_OPERAND_SIZE = sizeof(unsigned char);
 
 
-/*
- MemoryLocation
- between [0,15] - register
- between [16,INSTRUCTION_OPERAND_SIZE) - 8bit memory address
- between [INSTRUCTION_OPERAND_SIZE,) - index of label appearing in assembly
-*/
-using MemoryLocation = unsigned int;
-/*
- ImmediateValue
- between [0,INSTRUCTION_OPERAND_SIZE) - immediate value
- between [INSTRUCTION_OPERAND_SIZE,)  - index of constant appearing in assembly
-*/
-using ImmediateValue = unsigned int;
+// between [0,NUM_REGISTERS) - register index
+// between [NUM_REGISTERS,INSTRUCTION_OPERAND_SIZE] - RAM address
+using MemoryLocation = unsigned char;
+
+using Immediate = unsigned int;
+
+using Label = unsigned int;
+
+using Constant = unsigned int;
 
 
-using SrcType = std::variant<MemoryLocation, ImmediateValue>;
-using DstType = MemoryLocation;
+using SrcType = std::variant<MemoryLocation, Immediate, Label, Constant>;
+using DstType = std::variant<MemoryLocation, Label>;
 
 
 constexpr unsigned int NO_LABEL = INSTRUCTION_OPERAND_SIZE;
@@ -47,7 +43,7 @@ constexpr unsigned int NO_LABEL = INSTRUCTION_OPERAND_SIZE;
 struct Instruction
 {
     unsigned int label_index = NO_LABEL;
-    OpType op;
+    Op op;
     SrcType src1;
     SrcType src2;
     DstType dst;
@@ -58,6 +54,12 @@ class Assembly
 {
     std::vector<Instruction> instructions;
     std::unordered_map<unsigned int, unsigned int> constant_to_index_map;
+public:
+    auto &get_Instructions()       const { return instructions; }
+    auto &get_ConstantToIndexMap() const { return constant_to_index_map; }
+
+    void add_Instruction(const Instruction &instruction);
+    void add_ConstDefinition(unsigned int value);
 };
 
 
