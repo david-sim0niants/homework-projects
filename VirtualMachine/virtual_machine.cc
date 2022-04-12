@@ -104,77 +104,6 @@ void VirtualMachine::set_DstValue(uint8_t dst, uint32_t value)
 }
 
 
-uint32_t VirtualMachine::op_ADD(uint32_t src1, uint32_t src2) { return src1 + src2; }
-uint32_t VirtualMachine::op_SUB(uint32_t src1, uint32_t src2) { return src1 - src2; }
-uint32_t VirtualMachine::op_AND(uint32_t src1, uint32_t src2) { return src1 & src2; }
-uint32_t VirtualMachine::op_OR (uint32_t src1, uint32_t src2) { return src1 | src2; }
-uint32_t VirtualMachine::op_NOT(uint32_t src1, uint32_t src2) { return ~src1;       }
-uint32_t VirtualMachine::op_XOR(uint32_t src1, uint32_t src2) { return src1 ^ src2; }
-uint32_t VirtualMachine::op_MUL(uint32_t src1, uint32_t src2) { return src1 * src2; }
-
-void VirtualMachine::op_IF_EQ           (uint32_t src1, uint32_t src2, uint32_t dst)
-{
-    if (src1 == src2)
-    {
-        counter = dst;
-    }
-}
-
-void VirtualMachine::op_IF_NOT_EQ       (uint32_t src1, uint32_t src2, uint32_t dst)
-{
-    if (src1 != src2)
-    {
-        counter = dst;
-    }
-}
-
-void VirtualMachine::op_IF_LESS         (uint32_t src1, uint32_t src2, uint32_t dst)
-{
-    if (src1 < src2)
-    {
-        counter = dst;
-    }
-}
-
-void VirtualMachine::op_IF_LESS_OR_EQ   (uint32_t src1, uint32_t src2, uint32_t dst)
-{
-    if (src1 <= src2)
-    {
-        counter = dst;
-    }
-}
-
-void VirtualMachine::op_IF_GREATER      (uint32_t src1, uint32_t src2, uint32_t dst)
-{
-    if (src1 > src2)
-    {
-        counter = dst;
-    }
-}
-
-void VirtualMachine::op_IF_GREATER_OR_EQ(uint32_t src1, uint32_t src2, uint32_t dst)
-{
-    if (src1 >= src2)
-    {
-        counter = dst;
-    }
-}
-
-
-VirtualMachine::ALU_op VirtualMachine::ALU_ops[7] = {
-    op_ADD, op_SUB, op_AND, op_OR, op_NOT, op_XOR, op_MUL
-};
-
-VirtualMachine::COND_op VirtualMachine::COND_ops[6] = {
-    &VirtualMachine::op_IF_EQ,
-    &VirtualMachine::op_IF_NOT_EQ,
-    &VirtualMachine::op_IF_LESS,
-    &VirtualMachine::op_IF_LESS_OR_EQ,
-    &VirtualMachine::op_IF_GREATER,
-    &VirtualMachine::op_IF_GREATER
-};
-
-
 void VirtualMachine::exec()
 {
     if (counter + 4 > memory.size())
@@ -206,24 +135,83 @@ void VirtualMachine::exec()
     if (instruction.opcode & 32)
     {
         uint8_t cond_op_index = instruction.opcode & ~FIRST_IMMEDIATE & ~SECOND_IMMEDIATE & (~32);
-        if (cond_op_index >= 6)
+        uint32_t dst_val = get_SrcValue(instruction.dst);
+
+        switch (cond_op_index)
         {
+        case 0:
+            if (src1_val == src2_val)
+            {
+                counter = dst_val;
+            }
+            break;
+        case 1:
+            if (src1_val != src2_val)
+            {
+                counter = dst_val;
+            }
+            break;
+        case 2:
+            if (src1_val < src2_val)
+            {
+                counter = dst_val;
+            }
+            break;
+        case 3:
+            if (src1_val <= src2_val)
+            {
+                counter = dst_val;
+            }
+            break;
+        case 4:
+            if (src1_val > src2_val)
+            {
+                counter = dst_val;
+            }
+            break;
+        case 5:
+            if (src1_val >= src2_val)
+            {
+                counter = dst_val;
+            }
+            break;
+        default:
             throw invalid_opcode_error("Invalid opcode - " + std::to_string(instruction.opcode));
         }
-
-        uint32_t dst_val = get_SrcValue(instruction.dst);
-        (this->*(COND_ops[cond_op_index]))(src1_val, src2_val, dst_val);
     }
     else
     {
         uint32_t alu_op_index = (instruction.opcode & ~FIRST_IMMEDIATE & ~SECOND_IMMEDIATE);
+        uint32_t alu_result;
 
-        if (alu_op_index >= 7)
+        switch (alu_op_index)
         {
+        case 0:
+            alu_result = src1_val + src2_val;
+            break;
+        case 1:
+            alu_result = src1_val - src2_val;
+            break;
+        case 2:
+            alu_result = src1_val & src2_val;
+            break;
+        case 3:
+            alu_result = src1_val | src2_val;
+            break;
+        case 4:
+            alu_result = ~src1_val;
+            break;
+        case 5:
+            alu_result = src1_val ^ src2_val;
+            break;
+        case 6:
+            alu_result = src1_val * src2_val;
+            break;
+        default:
             throw invalid_opcode_error("Invalid opcode - " + std::to_string(instruction.opcode));
         }
 
-        set_DstValue(instruction.dst, ALU_ops[alu_op_index](src1_val, src2_val));
+        set_DstValue(instruction.dst, alu_result);
     }
 }
 

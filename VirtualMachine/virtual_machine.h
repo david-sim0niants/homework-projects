@@ -18,10 +18,10 @@ constexpr unsigned char SECOND_IMMEDIATE = 128;
 
 struct Instruction
 {
-    uint32_t opcode :8;
-    uint32_t src1   :8;
-    uint32_t src2   :8;
-    uint32_t dst    :8;
+    uint8_t opcode;
+    uint8_t src1;
+    uint8_t src2;
+    uint8_t dst;
 
     Instruction(char opcode, char src1, char src2, char dst)
     : opcode(opcode), src1(src1), src2(src2), dst(dst) {}
@@ -112,29 +112,6 @@ private:
     // set destination value
     // write to register if dst < NUM_REGISTERS, otherwise write to memory
     void set_DstValue(uint8_t dst, uint32_t value);
-
-    // ALU ops
-    static uint32_t op_ADD(uint32_t src1, uint32_t src2);
-    static uint32_t op_SUB(uint32_t src1, uint32_t src2);
-    static uint32_t op_AND(uint32_t src1, uint32_t src2);
-    static uint32_t op_OR (uint32_t src1, uint32_t src2);
-    static uint32_t op_NOT(uint32_t src1, uint32_t src2);
-    static uint32_t op_XOR(uint32_t src1, uint32_t src2);
-    static uint32_t op_MUL(uint32_t src1, uint32_t src2);
-
-    // COND ops
-    void op_IF_EQ           (uint32_t src1, uint32_t src2, uint32_t dst);
-    void op_IF_NOT_EQ       (uint32_t src1, uint32_t src2, uint32_t dst);
-    void op_IF_LESS         (uint32_t src1, uint32_t src2, uint32_t dst);
-    void op_IF_LESS_OR_EQ   (uint32_t src1, uint32_t src2, uint32_t dst);
-    void op_IF_GREATER      (uint32_t src1, uint32_t src2, uint32_t dst);
-    void op_IF_GREATER_OR_EQ(uint32_t src1, uint32_t src2, uint32_t dst);
-
-    using ALU_op = uint32_t (*) (uint32_t, uint32_t);
-    using COND_op = void (VirtualMachine::*) (uint32_t, uint32_t, uint32_t);
-
-    static ALU_op ALU_ops[7]; // array of ALU ops
-    static COND_op COND_ops[6]; // array of COND ops
 };
 
 
