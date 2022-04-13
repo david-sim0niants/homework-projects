@@ -11,7 +11,7 @@
 
 enum class Op
 {
-    NONE, ADD, SUB, OR, NOT, AND, XOR, MUL, JE, JNE, JLT, JLE, JGT, JGE, MOV
+    NONE, ADD, SUB, OR, NOT, AND, XOR, MUL, JE, JNE, JLT, JLE, JGT, JGE, JMP, MOV
 };
 
 
@@ -63,7 +63,7 @@ public:
 };
 
 
-void assemble(std::istream &code, std::ostream &output);
+void assemble(std::istream &code, std::ostream &output, std::vector<std::string> &messages);
 
 
 #endif
