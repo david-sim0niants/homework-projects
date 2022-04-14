@@ -32,7 +32,9 @@ int main(int argc, char *argv[])
     std::vector<std::string> messages;
     assemble(input_file, output_file, messages);
 
-    std::cerr << "Assembler messages:\n";
+    if (!messages.empty())
+        std::cerr << "Assembler messages:\n";
+
     for (auto &&msg : messages)
     {
         std::cerr << msg << '\n';
