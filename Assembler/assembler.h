@@ -3,9 +3,8 @@
 
 #include <istream>
 #include <ostream>
-#include <variant>
+#include <optional>
 #include <vector>
-#include <unordered_map>
 
 
 
@@ -60,39 +59,30 @@ constexpr unsigned int INSTRUCTION_OPERAND_MAX_VALUE = 1 << (sizeof(unsigned cha
 
 // between [0,NUM_REGISTERS) - register index
 // between [NUM_REGISTERS,INSTRUCTION_OPERAND_SIZE] - RAM address
-struct MemoryLocation { unsigned char value; };
-
-struct Immediate      { uint32_t  value; };
-
-struct Label          { unsigned int value; };
-
-struct Constant       { unsigned int value; };
 
 
-using SrcType = std::variant<std::monostate, MemoryLocation, Immediate, Label, Constant>;
-using DstType = std::variant<std::monostate, MemoryLocation, Label>;
-
-
-constexpr unsigned int NO_LABEL = 0;
+constexpr unsigned char NO_LABEL = 0;
 
 
 struct Instruction
 {
-    unsigned int label_index = NO_LABEL;
+    unsigned char label_index;
     Op op;
-    SrcType src1;
-    SrcType src2;
-    DstType dst;
+    std::optional<unsigned char> src1;
+    std::optional<unsigned char> src2;
+    std::optional<unsigned char> dst;
+
+    bool src1_label = false;
+    bool src2_label = false;
+    bool dst_label  = false;
 };
 
 
 class Assembly
 {
     std::vector<Instruction> instructions;
-    std::unordered_map<unsigned int, unsigned int> constant_to_index_map;
 public:
     auto &get_Instructions()       const { return instructions; }
-    auto &get_ConstantToIndexMap() const { return constant_to_index_map; }
 
     void add_Instruction(const Instruction &instruction)
     {
