@@ -1,607 +1,508 @@
 #include "assembler.h"
 
-#include <istream>
 #include <iterator>
-#include <sstream>
 #include <limits>
 #include <string>
 #include <unordered_map>
 #include <optional>
-#include <variant>
-#include <algorithm>
-#include <cstring>
-
-
-
-using StringToUintMap = std::unordered_map<std::string, unsigned int>;
 
 
 struct AssemblyParseState
 {
-    std::istream &code;
-    StringToUintMap &label_to_index_map;
-    StringToUintMap &const_to_value_map;
+    uint32_t next_instr_addr = 0;
+    std::unordered_map<std::string, int32_t> &labels;
+    std::remove_reference<decltype(labels)>::type::iterator last_defined_label_it = {}; // zakayf
     std::vector<std::string> &messages;
 };
 
 
+using ISIt = std::istream_iterator<char>;
 
-static Op parse_Op(const std::string &str)
+
+class AssemblyDef
 {
-    if (str == "add" || str == "ADD")
-        return Op::ADD;
-    else if (str == "SUB" || str == "sub")
-        return Op::SUB;
-    else if (str == "OR"  || str ==  "or")
-        return Op::OR;
-    else if (str == "NOT" || str == "not")
-        return Op::NOT;
-    else if (str == "AND" || str == "and")
-        return Op::AND;
-    else if (str == "XOR" || str == "xor")
-        return Op::XOR;
-    else if (str == "MUL" || str == "mul")
-        return Op::MUL;
-    else if (str == "JE"  || str ==  "je")
-        return Op::JE;
-    else if (str == "JNE" || str == "jne")
-        return Op::JNE;
-    else if (str == "JLT" || str == "jlt")
-        return Op::JLT;
-    else if (str == "JLE" || str == "jle")
-        return Op::JLE;
-    else if (str == "JGT" || str == "jgt")
-        return Op::JGT;
-    else if (str == "JGE" || str == "jge")
-        return Op::JGE;
-    else if (str == "JMP" || str == "jmp")
-        return Op::JMP;
-    else if (str == "MOV" || str == "mov")
-        return Op::MOV;
-    else
-        return Op::NONE;
+public:
+    char immediate_sign = '$';
+    char delimiter = ',';
+    const char *comment = "//";
+    std::unordered_map<std::string, Mnemonic> mnemonics = {
+        {"ADD", Mnemonic::ADD}, {"add", Mnemonic::ADD},
+        {"SUB", Mnemonic::SUB}, {"sub", Mnemonic::SUB},
+        {"OR",  Mnemonic::OR }, {"or",  Mnemonic::OR },
+        {"NOT", Mnemonic::NOT}, {"not", Mnemonic::NOT},
+        {"AND", Mnemonic::AND}, {"and", Mnemonic::AND},
+        {"XOR", Mnemonic::XOR}, {"xor", Mnemonic::XOR},
+        {"MUL", Mnemonic::MUL}, {"mul", Mnemonic::MUL},
+        {"JE",  Mnemonic::JE }, {"je",  Mnemonic::JE },
+        {"JNE", Mnemonic::JNE}, {"jne", Mnemonic::JNE},
+        {"JLT", Mnemonic::JLT}, {"jlt", Mnemonic::JLT},
+        {"JLE", Mnemonic::JLE}, {"jle", Mnemonic::JLE},
+        {"JGT", Mnemonic::JGT}, {"jgt", Mnemonic::JGT},
+        {"JGE", Mnemonic::JGE}, {"jge", Mnemonic::JGE},
+        {"JMP", Mnemonic::JMP}, {"jmp", Mnemonic::JMP},
+        {"MOV", Mnemonic::MOV}, {"mov", Mnemonic::MOV},
+    };
+    std::unordered_map<std::string, size_t> registers;
+
+    static const AssemblyDef instance;
+    static constexpr unsigned int MAX_MNM_LEN = 3;
+    static constexpr unsigned int MAX_REG_LEN = 3;
+
+private:
+    AssemblyDef()
+    {
+        for (unsigned int i = 0; i < NUM_REGISTERS; ++i)
+        {
+            std::string i_str = std::to_string(i);
+            registers['r' + i_str] = i;
+            registers['R' + i_str] = i;
+        }
+
+        registers["io"] = IO_REGISTER_INDEX;
+        registers["IO"] = IO_REGISTER_INDEX;
+
+        registers["pc"] = COUNTER_INDEX;
+        registers["PC"] = COUNTER_INDEX;
+    }
+};
+
+
+inline const AssemblyDef AssemblyDef::instance;
+
+
+template<typename... Types>
+bool is_in_Monostate(std::variant<Types...> variant)
+{
+    return std::holds_alternative<std::monostate>(variant);
 }
 
-static bool can_parse_Identifier(const char *str, size_t num_chars)
+
+static bool remove_CommentIfHit(std::istream &input)
 {
-    if (!num_chars)
-        return false;
+    ISIt it{input};
 
-    char c = str[0];
-    if ((c < 'A' || c > 'Z') && (c < 'a' || c > 'z') && c != '.' && c != '_')
+    for (int i = 0; it != ISIt{} && i < 2; ++i, ++it)
     {
-        return false;
-    }
-
-    for (size_t i = 1; i < num_chars; ++i)
-    {
-        c = str[i];
-        if ((c < 'A' || c > 'Z') && (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '.' && c != '_')
+        if (*it != AssemblyDef::instance.comment[i])
         {
+            input.seekg(-i - 1, std::ios::cur);
             return false;
         }
     }
 
+    input.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+
     return true;
 }
 
-static bool can_parse_LabelDef(std::string &str)
+
+static std::optional<OperandImmediate> parse_Immediate(std::istream &input)
 {
-    if (str.back() == ':')
+    auto initial_pos = input.tellg();
+
+    OperandImmediate immediate;
+
+    while (input)
     {
-        return can_parse_Identifier(str.c_str(), str.size() - 1);
+        char c;
+        input >> c;
+
+        if (std::iswspace(c))
+        {
+            continue;
+        }
+
+        if (c != AssemblyDef::instance.immediate_sign)
+        {
+            return {};
+        }
+
+        break;
+    }
+
+    if (!input)
+    {
+        return {};
+    }
+
+    input >> immediate;
+
+    if (input.fail())
+    {
+        input.seekg(initial_pos, std::ios::beg);
+        return {};
+    }
+
+    if (input)
+    {
+        char c;
+        input >> c;
+
+        if (!std::iswspace(c) && c != AssemblyDef::instance.delimiter)
+        {
+            input.seekg(initial_pos, std::ios::beg);
+            return {};
+        }
+    }
+
+    return immediate;
+}
+
+
+static std::string parse_Identifier(std::istream &input)
+{
+    int chars_read = 0;
+    std::string identifier;
+
+    ISIt it{input};
+
+    for (; it != ISIt(); ++it, ++chars_read)
+    {
+        char c = *it;
+        if (identifier.empty())
+        {
+            if (std::iswspace(c))
+            {
+                continue;
+            }
+
+            if ((c < 'A' || c > 'Z') && (c < 'a' || c > 'z') && c != '.' && c != '_')
+            {
+                break;
+            }
+
+            identifier.push_back(c);
+        }
+        else
+        {
+            if (std::iswspace(c) ||
+                (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') &&
+                (c < '0' || c > '9') && c != '.' && c != '_')
+            {
+                break;
+            }
+
+            identifier.push_back(c);
+        }
+
+    }
+
+    if (identifier.empty())
+    {
+        input.seekg(-chars_read - 1, std::ios::cur);
     }
     else
     {
+        input.seekg(-1, std::ios::cur);
+    }
+
+    return identifier;
+}
+
+
+static bool check_if_Reserved(std::string &identifier)
+{
+    return !
+    (AssemblyDef::instance.mnemonics.find(identifier) == AssemblyDef::instance.mnemonics.end()
+    &&
+    AssemblyDef::instance.registers.find(identifier) == AssemblyDef::instance.registers.end());
+}
+
+
+static bool parse_LabelDef(std::istream &input, AssemblyParseState &parse_state)
+{
+    auto initial_pos = input.tellg();
+    parse_state.last_defined_label_it = {};
+
+    std::string label = parse_Identifier(input);
+
+    if (label.empty())
+    {
+        input.seekg(initial_pos, std::ios::beg);
         return false;
     }
+
+    auto is_it = ISIt(input);
+
+    int chars_read = 0;
+    for (; is_it != ISIt(); ++is_it, ++chars_read)
+    {
+        char c = *is_it;
+
+        if (remove_CommentIfHit(input))
+        {
+            chars_read = 0;
+        }
+
+        if (std::iswspace(c))
+        {
+            chars_read = 0;
+            continue;
+        }
+
+        if (c != ':')
+        {
+            break;
+        }
+
+        if (parse_state.labels.find(label) != parse_state.labels.end())
+        {
+            parse_state.messages.push_back("Label already defined.");
+            return false;
+        }
+
+        if (check_if_Reserved(label))
+        {
+            parse_state.messages.push_back("Token " + label + " is reserved and can't be a label name.");
+            return false;
+        }
+
+        parse_state.last_defined_label_it = parse_state.labels.insert(
+            std::make_pair(label, parse_state.next_instr_addr)
+        ).first;
+        return true;
+    }
+
+    input.seekg(initial_pos, std::ios::beg);
+    return false;
 }
 
 
-static unsigned int parse_Register(const std::string &reg)
+static Mnemonic parse_Mnemonic(std::istream &input)
 {
-    if (reg.size() >= 4 || reg.size() < 2 || reg.front() != 'r' && reg.front() != 'R')
+    auto initial_pos = input.tellg();
+
+    std::string token;
+    input.setf(std::ios::skipws);
+    input >> token;
+    input.unsetf(std::ios::skipws);
+
+    auto &mnemonics = AssemblyDef::instance.mnemonics;
+
+    auto found_it = mnemonics.find(token);
+    if (found_it != mnemonics.end())
+    {
+        return found_it->second;
+    }
+    else
+    {
+        input.seekg(initial_pos, std::ios::beg);
+        return Mnemonic::NONE;
+    }
+}
+
+
+static OperandMemLoc parse_Registers(std::istream &input)
+{
+    auto initial_pos = input.tellg();
+
+    char reg_name[AssemblyDef::MAX_REG_LEN]{};
+    unsigned int i = 0;
+
+    char c;
+
+    while (input && i < AssemblyDef::MAX_REG_LEN)
+    {
+        input >> c;
+
+        if (std::iswspace(c) || c == AssemblyDef::instance.delimiter)
+        {
+            if (i)
+                break;
+            else
+                continue;
+        }
+
+        reg_name[i++] = c;
+    }
+
+    if (!input && !(std::iswspace(c) || c == AssemblyDef::instance.delimiter))
     {
         return NUM_REGISTERS;
     }
 
-    if (reg[1] < '0' || reg[1] > '9')
+    auto found_it = AssemblyDef::instance.registers.find(std::string{reg_name});
+
+    if (found_it == AssemblyDef::instance.registers.end())
     {
+        input.seekg(initial_pos, std::ios::beg);
         return NUM_REGISTERS;
     }
 
-    size_t next_char_i;
-    int reg_i = std::stoi(reg.substr(1, reg.size() - 1), &next_char_i);
-
-    if (next_char_i < reg.size() - 1 || reg_i < 0 || reg_i >= NUM_REGISTERS)
-    {
-        return NUM_REGISTERS; // return number of registers in case of fail
-    }
-    else
-    {
-        return reg_i;
-    }
+    return found_it->second;
 }
 
-static unsigned int parse_Address(const std::string &addr)
+
+static OperandMemLoc parse_Address(std::istream &input)
 {
-    if ((addr[0] != '0' || addr[1] != 'x') &&
-        (addr.front() < '0' || addr.front() > 'f' ||
-         addr.size() > 2 || addr.empty()))
-    {
-        return INSTRUCTION_OPERAND_MAX_VALUE;
-    }
-
-    size_t next_char_i = 0;
-    int parsed_addr = std::stoi(addr, &next_char_i, 16);
-
-    if (next_char_i >= addr.size() && parsed_addr < INSTRUCTION_OPERAND_MAX_VALUE)
-    {
-        return parsed_addr;
-    }
-    else
-    {
-        return INSTRUCTION_OPERAND_MAX_VALUE;
-    }
+    return NUM_REGISTERS;
 }
 
-static std::optional<unsigned char> parse_MemoryLocation(const std::string &mem_loc)
+
+static std::optional<OperandMemLoc> parse_MemoryLocation(std::istream &input)
 {
-    unsigned int parsed_mem_loc = parse_Register(mem_loc);
-    if (parsed_mem_loc != NUM_REGISTERS)
+    OperandMemLoc mem_loc = parse_Registers(input);
+
+    if (mem_loc < NUM_REGISTERS)
     {
-        return { static_cast<unsigned char>(parsed_mem_loc)};
+        return mem_loc;
     }
 
-    parsed_mem_loc = parse_Address(mem_loc);
-    if (parsed_mem_loc != INSTRUCTION_OPERAND_MAX_VALUE)
-    {
-        return { static_cast<unsigned char>(parsed_mem_loc)};
-    }
-
-    return {};
+    mem_loc = parse_Address(input);
+    return mem_loc;
 }
 
-static std::optional<unsigned char> parse_Immediate(const std::string &immediate)
+
+static SrcOperand parse_SrcOperand(std::istream &input)
 {
-    if (immediate.front() != '$' ||
-        immediate.size() > 12 ||
-        immediate.size() < 2  ||
-        ((immediate[1] > '9' || immediate[1] < '0') && immediate[1] != '-') ||
-        ((immediate[2] > '9' || immediate[2] < '0') && immediate[1] == '-'))
-    {
-        return {};
-    }
-
-    size_t next_char_i = 0;
-    int parsed_imm = std::stoi(immediate.substr(1, immediate.size() - 1), &next_char_i);
-
-    if (next_char_i >= immediate.size() - 1)
-    {
-        return parsed_imm;
-    }
-    else
-    {
-        return {};
-    }
-}
-
-static std::optional<unsigned char> parse_SrcOperand(const std::string &token, AssemblyParseState &parse_state, bool &is_label)
-{
-    is_label = false;
-    // try parse memory location
-    auto mem_loc = parse_MemoryLocation(token);
+    auto mem_loc = parse_MemoryLocation(input);
     if (mem_loc.has_value())
     {
         return mem_loc.value();
     }
 
-    // if failed to parse an identifier, try parse an immediate value
-    auto immediate = parse_Immediate(token);
+    auto immediate = parse_Immediate(input);
     if (immediate.has_value())
     {
-        return immediate.value();
+        return immediate.has_value();
     }
-    else if (can_parse_Identifier(token.c_str(), token.size())) // try parse identifier
+
+    std::string label = parse_Identifier(input);
+    if (!label.empty())
     {
-        // check for label
-        auto found_it = parse_state.label_to_index_map.find(token);
-        if (found_it != parse_state.label_to_index_map.end())
-        {
-            is_label = true;
-            return found_it->second;
-        }
-
-        // check for const
-        found_it = parse_state.const_to_value_map.find(token);
-        if (found_it != parse_state.const_to_value_map.end())
-        {
-            return found_it->second;
-        }
+        return label;
     }
 
-    // fail if no good case returned
-    return {};
+    return std::monostate{};
 }
 
-static std::optional<unsigned char> parse_DstOperand(const std::string &token, AssemblyParseState &parse_state, bool &is_label)
-{
-    auto &code = parse_state.code;
-    is_label = false;
 
-    // try parse memory location
-    auto mem_loc = parse_MemoryLocation(token);
+static DstOperand parse_DstOperand(std::istream &input)
+{
+    auto mem_loc = parse_MemoryLocation(input);
     if (mem_loc.has_value())
     {
         return mem_loc.value();
     }
 
-    // try parse identifier
-    if (can_parse_Identifier(token.c_str(), token.size()))
+    std::string label = parse_Identifier(input);
+    if (!label.empty())
     {
-        // check for label
-        auto found_it = parse_state.label_to_index_map.find(token);
-        if (found_it != parse_state.label_to_index_map.end())
-        {
-            is_label = true;
-            return found_it->second;
-        }
+        return label;
     }
 
-    return {};
+    return std::monostate{};
 }
 
 
-static void trim_Commas(std::string &str)
+static std::optional<Instruction> parse_Instruction(std::istream &input, AssemblyParseState &parse_state)
 {
-    auto no_commas = [](unsigned char ch) { return ch != ','; };
-    str.erase(str.begin(), std::find_if(str.begin(),  str.end(),  no_commas));
-    str.erase(std::find_if(str.rbegin(), str.rend(), no_commas).base(), str.end());
-}
+    remove_CommentIfHit(input);
+    Mnemonic mnemonic = parse_Mnemonic(input);
 
+    const char *src_expected = "Expected a source operand.";
+    const char *dst_expected = "Expected a destination operand.";
 
-static const std::string
-label_redefinition_error = "Error: redefinition of the same label",
-label_not_defined_error = "Error: label is not defined.",
-missing_operands_in_instr_error = "Error: some operands are missing"
-                                  " to form a complete instruction.",
-expected_opname_error = "Error: expected an operation.",
-missing_const_name_after_constdef = "Error: missing const name after constdef.",
-invalid_const_name = "Error: Invalid const name.",
-identifier_already_declared = "Error: identifier is already declared.",
-missing_const_value = "Error: missing const value.",
-const_value_must_be_immediate = "Error: const value must be an immediate.";
-
-
-template<typename... Types>
-static std::optional<Instruction> parse_Instruction_from_Op(Op op, AssemblyParseState &parse_state)
-{
-    auto &code = parse_state.code;
-    auto log_error = [&parse_state](const std::string &token = "") {
-        parse_state.messages.push_back(missing_operands_in_instr_error);
-        parse_state.messages.push_back("Error: unknown source operand - " + token + '.');
-    };
-
-    if (!code)
+    if (mnemonic == Mnemonic::NONE)
     {
-        log_error();
         return {};
     }
 
-    OperandsOrder operands_order = get_OperandsOrder_from_Op(op);
-    std::string token;
-
-    if (!code)
+    remove_CommentIfHit(input);
+    if (mnemonic == Mnemonic::JMP)
     {
-        log_error();
-        return {};
-    }
-
-    code >> token;
-    trim_Commas(token);
-
-    std::optional<unsigned char> src1;
-    bool is_src1_label = false;
-    if (operands_order == OperandsOrder::SRC_DST || operands_order == OperandsOrder::SRC1_SRC2_DST)
-    {
-        src1 = parse_SrcOperand(token, parse_state, is_src1_label);
-        if (!src1.has_value() || !code)
+        DstOperand dst = parse_DstOperand(input);
+        if (is_in_Monostate(dst))
         {
-            log_error(token);
+            parse_state.messages.push_back(dst_expected);
             return {};
         }
-
-        code >> token;
-        trim_Commas(token);
+        return Instruction{.mnemonic = mnemonic, .dst = dst};
     }
 
-
-    std::optional<unsigned char> src2 = {};
-    bool is_src2_label = false;
-    if (operands_order == OperandsOrder::SRC1_SRC2_DST)
+    SrcOperand src1 = parse_SrcOperand(input);
+    if (is_in_Monostate(src1))
     {
-        src2 = parse_SrcOperand(token, parse_state, is_src2_label);
-
-        if (!src2.has_value() || !code)
-        {
-            log_error(token);
-            return {};
-        }
-
-        code >> token;
-        trim_Commas(token);
-    }
-
-
-    std::optional<unsigned char> dst;
-    bool is_dst_label = false;
-    if (operands_order == OperandsOrder::DST ||
-        operands_order == OperandsOrder::SRC_DST ||
-        operands_order == OperandsOrder::SRC1_SRC2_DST)
-    {
-        dst = parse_DstOperand(token, parse_state, is_dst_label);
-
-        if (!dst.has_value())
-        {
-            log_error(token);
-            return {};
-        }
-    }
-
-    return Instruction{NO_LABEL, op, src1, src2, dst, is_src1_label, is_src2_label, is_dst_label};
-}
-
-
-static std::optional<Instruction>
-parse_Instruction(unsigned char label_index, AssemblyParseState &parse_state)
-{
-    if (!parse_state.code)
-    {
-        parse_state.messages.push_back(expected_opname_error);
+        parse_state.messages.push_back(src_expected);
         return {};
     }
 
-    std::string op_tok;
-    parse_state.code >> op_tok;
-
-    Op op = parse_Op(op_tok);
-    if (op == Op::NONE)
+    remove_CommentIfHit(input);
+    if (mnemonic == Mnemonic::MOV)
     {
-        parse_state.messages.push_back(expected_opname_error);
+        DstOperand dst = parse_DstOperand(input);
+        if (is_in_Monostate(dst))
+        {
+            parse_state.messages.push_back(dst_expected);
+            return {};
+        }
+        return Instruction{.mnemonic = mnemonic, .src1 = src1, .dst = dst};
+    }
+
+    SrcOperand src2 = parse_SrcOperand(input);
+    if (is_in_Monostate(src2))
+    {
+        parse_state.messages.push_back(src_expected);
         return {};
     }
 
-    auto instr = parse_Instruction_from_Op(op, parse_state);
-
-    if (instr.has_value())
+    remove_CommentIfHit(input);
+    DstOperand dst = parse_DstOperand(input);
+    if (is_in_Monostate(dst))
     {
-        instr.value().label_index = label_index;
+        parse_state.messages.push_back(dst_expected);
+        return {};
     }
 
-    return instr;
+    return Instruction{mnemonic, src1, src2, dst};
 }
 
 
-bool parse_ConstDef(AssemblyParseState &parse_state)
+void parse_Assembly(std::istream &input, Assembly &assembly, std::vector<std::string> &messages)
 {
-    std::string token;
-
-    if (!parse_state.code)
-    {
-        parse_state.messages.push_back(missing_const_name_after_constdef);
-        return false;
-    }
-
-    parse_state.code >> token;
-
-    if (!can_parse_Identifier(token.c_str(), token.size()))
-    {
-        parse_state.messages.push_back(invalid_const_name);
-        return false;
-    }
-
-    auto const_found_it = parse_state.const_to_value_map.find(token);
-    auto label_found_it = parse_state.label_to_index_map.find(token);
-
-    if (const_found_it == parse_state.const_to_value_map.end() &&
-        label_found_it == parse_state.label_to_index_map.end())
-    {
-        parse_state.messages.push_back(identifier_already_declared);
-        return false;
-    }
-
-    if (!parse_state.code)
-    {
-        parse_state.messages.push_back(missing_const_value);
-        return false;
-    }
-
-    parse_state.code >> token;
-
-    auto immediate = parse_Immediate(token);
-    if (!immediate.has_value())
-    {
-        parse_state.messages.push_back(const_value_must_be_immediate);
-        return false;
-    }
-
-    parse_state.const_to_value_map[token] = immediate.value();
-
-    return true;
-}
-
-
-static void parse_AllDefs(std::istream &code, AssemblyParseState &parse_state)
-{
-    auto &label_to_index_map = parse_state.label_to_index_map;
-    auto &const_to_value_map = parse_state.const_to_value_map;
-
-    while (code)
-    {
-        std::string token;
-        code >> token;
-
-        if (!can_parse_LabelDef(token))
-        {
-            if (token == "constdef")
-            {
-                parse_ConstDef(parse_state);
-            }
-            continue;
-        }
-
-        auto label = token.substr(0, token.size() - 1);
-
-        if (label_to_index_map.find(label) != label_to_index_map.end())
-        {
-            parse_state.messages.push_back(label_redefinition_error);
-            continue;
-        }
-
-        if (const_to_value_map.find(label) != const_to_value_map.end())
-        {
-            parse_state.messages.push_back(identifier_already_declared);
-        }
-
-        label_to_index_map[label] = label_to_index_map.size();
-    }
-
-    code.clear();
-    code.seekg(0, std::ios::beg);
-}
-
-
-Assembly parse_Assembly(std::istream &code, std::vector<std::string> &messages)
-{
-    StringToUintMap label_to_index_map, const_to_value_map;
-
     AssemblyParseState parse_state {
-        .code = code,
-        .label_to_index_map = label_to_index_map,
-        .const_to_value_map = const_to_value_map,
+        .labels = assembly.labels,
         .messages = messages
     };
 
+    input.unsetf(std::ios::skipws);
 
-    parse_AllDefs(code, parse_state);
-
-
-    Assembly assembly;
-
-    while (code)
+    while (input)
     {
-        std::string token;
-        code >> token;
-
-        if (token.find("//") != std::string::npos)
+        if (parse_LabelDef(input, parse_state))
         {
-            code.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-            continue;
-        }
-
-
-        if (token == "constdef")
-        {
-            continue;
-        }
-
-
-        std::optional<Instruction> maybe_instr;
-        if (can_parse_LabelDef(token))
-        {
-            // check for label
-            std::string label = token.substr(0, token.size() - 1);
-            auto found_label_it = label_to_index_map.find(label);
-
-            if (found_label_it == label_to_index_map.end())
-                messages.push_back(label_not_defined_error);
-            
-            maybe_instr = parse_Instruction(found_label_it->second, parse_state);
-        }
-        else
-        {
-            Op op = parse_Op(token);
-            if (op != Op::NONE)
+            // check if the label is just a constant actually
+            // constant's syntax is the same as immediate's one
+            auto immediate = parse_Immediate(input);
+            if (!immediate.has_value())
             {
-                maybe_instr = parse_Instruction_from_Op(op, parse_state);
+                continue;
             }
-        }
 
-        if (maybe_instr.has_value())
-        {
-            assembly.add_Instruction(maybe_instr.value());
-        }
-    }
-
-
-    return assembly;
-}
-
-
-static const unsigned int FIRST_IMMEDIATE_BIT = 64, SECOND_IMMEDIATE_BIT = 128;
-static const unsigned int JMP_BIT = 32;
-
-static const std::unordered_map<Op, unsigned char> op_to_opcode_map = {
-    {Op::ADD, 0},
-    {Op::SUB, 1},
-    {Op::AND, 2},
-    {Op::OR,  3},
-    {Op::NOT, 4},
-    {Op::XOR, 5},
-    {Op::MUL, 6},
-    {Op::JE,  0 | JMP_BIT},
-    {Op::JNE, 1 | JMP_BIT},
-    {Op::JLT, 2 | JMP_BIT},
-    {Op::JLE, 3 | JMP_BIT},
-    {Op::JGT, 4 | JMP_BIT},
-    {Op::JGE, 5 | JMP_BIT},
-    {Op::JMP, 0 | FIRST_IMMEDIATE_BIT | SECOND_IMMEDIATE_BIT},
-    {Op::MOV, 3 | SECOND_IMMEDIATE_BIT}
-};
-
-
-void assemble(std::istream &code, std::ostream &output, std::vector<std::string> &messages)
-{
-    Assembly assembly = parse_Assembly(code, messages);
-
-    auto instructions = assembly.get_Instructions();
-
-    std::unordered_map<unsigned char, unsigned char> label_index_to_addr_map;
-
-    unsigned char instr_addr = 0;
-    for (auto &&instr : instructions)
-    {
-        label_index_to_addr_map[instr.label_index] = instr_addr;
-        instr_addr += 4;
-    }
-
-    for (auto &&instr : instructions)
-    {
-        if (instr.op == Op::NONE)
-        {
+            parse_state.last_defined_label_it->second = immediate.value();
             continue;
         }
 
-        unsigned char instr_bin[4] {};
-        instr_bin[0] = op_to_opcode_map.at(instr.op);
-
-        instr_bin[1] = instr.src1_label ? label_index_to_addr_map[instr.src1_label] : instr.src1.value();
-        if (instr.op != Op::MOV && instr.op != Op::JMP)
+        auto instruction = parse_Instruction(input, parse_state);
+        if (instruction.has_value())
         {
-            instr_bin[2] = instr.src2_label ? label_index_to_addr_map[instr.src2_label] : instr.src2.value();
+            assembly.instructions.push_back(instruction.value());
         }
 
-        if (instr.op == Op::JMP)
-        {
-            instr_bin[3] = NUM_REGISTERS - 1;
-        }
-        else
-        {
-            instr_bin[3] = instr.dst_label ? label_index_to_addr_map[instr.dst_label] : instr.dst.value();
-        }
-
-
-        output.write(reinterpret_cast<char *>(instr_bin), 1);
+        input.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     }
 }
 
+
+void assemble(const Assembly &assembly, std::ostream &output, std::vector<std::string> &messages)
+{
+
+}
+
+
+void assemble(std::istream &input, std::ostream &output, std::vector<std::string> &messages)
+{
+    Assembly assembly;
+    parse_Assembly(input, assembly, messages);
+    assemble(assembly, output, messages);
+}
