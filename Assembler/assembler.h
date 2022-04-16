@@ -31,7 +31,10 @@ struct Instruction
     SrcOperand src2;
     DstOperand dst;
 
-    size_t size() const;
+    size_t size() const
+    {
+        return 0x4;
+    }
 };
 
 
@@ -48,8 +51,8 @@ constexpr unsigned int COUNTER_INDEX = NUM_GP_REGISTERS + 2;
 constexpr unsigned int NUM_REGISTERS = NUM_GP_REGISTERS + 3;
 
 
-void parse_Assembly(std::istream &input, Assembly &parsed_assembly);
-void assemble(const Assembly &assembly, std::ostream &output);
+void parse_Assembly(std::istream &input, Assembly &parsed_assembly, std::vector<std::string> &messages);
+void assemble(const Assembly &assembly, std::ostream &output, std::vector<std::string> &messages);
 void assemble(std::istream &input, std::ostream &output, std::vector<std::string> &messages);
 
 

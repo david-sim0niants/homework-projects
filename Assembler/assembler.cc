@@ -2,6 +2,7 @@
 
 #include <iterator>
 #include <limits>
+#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <optional>
@@ -16,13 +17,10 @@ struct AssemblyParseState
 };
 
 
-using ISIt = std::istream_iterator<char>;
-
-
 class AssemblyDef
 {
 public:
-    char immediate_sign = '$';
+    char immediate_sign = '#';
     char delimiter = ',';
     const char *comment = "//";
     std::unordered_map<std::string, Mnemonic> mnemonics = {
@@ -77,25 +75,6 @@ bool is_in_Monostate(std::variant<Types...> variant)
 }
 
 
-static bool remove_CommentIfHit(std::istream &input)
-{
-    ISIt it{input};
-
-    for (int i = 0; it != ISIt{} && i < 2; ++i, ++it)
-    {
-        if (*it != AssemblyDef::instance.comment[i])
-        {
-            input.seekg(-i - 1, std::ios::cur);
-            return false;
-        }
-    }
-
-    input.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-
-    return true;
-}
-
-
 static std::optional<OperandImmediate> parse_Immediate(std::istream &input)
 {
     auto initial_pos = input.tellg();
@@ -114,6 +93,7 @@ static std::optional<OperandImmediate> parse_Immediate(std::istream &input)
 
         if (c != AssemblyDef::instance.immediate_sign)
         {
+            input.seekg(initial_pos, std::ios::beg);
             return {};
         }
 
@@ -122,6 +102,7 @@ static std::optional<OperandImmediate> parse_Immediate(std::istream &input)
 
     if (!input)
     {
+        input.seekg(initial_pos, std::ios::beg);
         return {};
     }
 
@@ -154,11 +135,11 @@ static std::string parse_Identifier(std::istream &input)
     int chars_read = 0;
     std::string identifier;
 
-    ISIt it{input};
-
-    for (; it != ISIt(); ++it, ++chars_read)
+    while (input)
     {
-        char c = *it;
+        char c;
+        input >> c;
+
         if (identifier.empty())
         {
             if (std::iswspace(c))
@@ -222,17 +203,11 @@ static bool parse_LabelDef(std::istream &input, AssemblyParseState &parse_state)
         return false;
     }
 
-    auto is_it = ISIt(input);
-
     int chars_read = 0;
-    for (; is_it != ISIt(); ++is_it, ++chars_read)
+    while (input)
     {
-        char c = *is_it;
-
-        if (remove_CommentIfHit(input))
-        {
-            chars_read = 0;
-        }
+        char c;
+        input >> c;
 
         if (std::iswspace(c))
         {
@@ -292,11 +267,11 @@ static Mnemonic parse_Mnemonic(std::istream &input)
 }
 
 
-static OperandMemLoc parse_Registers(std::istream &input)
+static OperandMemLoc parse_Register(std::istream &input)
 {
     auto initial_pos = input.tellg();
 
-    char reg_name[AssemblyDef::MAX_REG_LEN]{};
+    char reg_name[AssemblyDef::MAX_REG_LEN + 1]{};
     unsigned int i = 0;
 
     char c;
@@ -335,25 +310,65 @@ static OperandMemLoc parse_Registers(std::istream &input)
 
 static OperandMemLoc parse_Address(std::istream &input)
 {
-    return NUM_REGISTERS;
+    auto initial_pos = input.tellg();
+
+    while (input)
+    {
+        char c;
+        input >> c;
+
+        if (!(std::iswspace(c) || c == AssemblyDef::instance.delimiter))
+        {
+            input.seekg(-1, std::ios::cur);
+            break;
+        }
+    }
+
+    OperandMemLoc addr;
+    input >> addr;
+
+    if (input.fail())
+    {
+        input.seekg(initial_pos, std::ios::beg);
+        return 0;
+    }
+
+    if (input)
+    {
+        char c;
+        input >> c;
+
+        if (!(std::iswspace(c) || c == AssemblyDef::instance.delimiter))
+        {
+            input.seekg(initial_pos, std::ios::beg);
+            return 0;
+        }
+    }
+
+    return addr;
 }
 
 
 static std::optional<OperandMemLoc> parse_MemoryLocation(std::istream &input)
 {
-    OperandMemLoc mem_loc = parse_Registers(input);
+    OperandMemLoc mem_loc = parse_Register(input);
 
     if (mem_loc < NUM_REGISTERS)
     {
         return mem_loc;
     }
 
-    mem_loc = parse_Address(input);
-    return mem_loc;
+    // mem_loc = parse_Address(input);
+    // if (mem_loc >= NUM_REGISTERS)
+    // {
+    //     return mem_loc;
+    // }
+
+    return {};
 }
 
 
-static SrcOperand parse_SrcOperand(std::istream &input)
+static SrcOperand parse_SrcOperand(std::istream &input, AssemblyParseState &parse_state)
 {
     auto mem_loc = parse_MemoryLocation(input);
     if (mem_loc.has_value())
@@ -364,10 +379,17 @@ static SrcOperand parse_SrcOperand(std::istream &input)
     auto immediate = parse_Immediate(input);
     if (immediate.has_value())
     {
-        return immediate.has_value();
+        return immediate.value();
     }
 
     std::string label = parse_Identifier(input);
+
+    if (check_if_Reserved(label))
+    {
+        parse_state.messages.push_back("Invalid label - " + label);
+        return {};
+    }
+
     if (!label.empty())
     {
         return label;
@@ -377,7 +399,7 @@ static SrcOperand parse_SrcOperand(std::istream &input)
 }
 
 
-static DstOperand parse_DstOperand(std::istream &input)
+static DstOperand parse_DstOperand(std::istream &input, AssemblyParseState &parse_state)
 {
     auto mem_loc = parse_MemoryLocation(input);
     if (mem_loc.has_value())
@@ -391,13 +413,18 @@ static DstOperand parse_DstOperand(std::istream &input)
         return label;
     }
 
+    if (check_if_Reserved(label))
+    {
+        parse_state.messages.push_back("Invalid label - " + label);
+        return {};
+    }
+
     return std::monostate{};
 }
 
 
 static std::optional<Instruction> parse_Instruction(std::istream &input, AssemblyParseState &parse_state)
 {
-    remove_CommentIfHit(input);
     Mnemonic mnemonic = parse_Mnemonic(input);
 
     const char *src_expected = "Expected a source operand.";
@@ -408,10 +435,9 @@ static std::optional<Instruction> parse_Instruction(std::istream &input, Assembl
         return {};
     }
 
-    remove_CommentIfHit(input);
     if (mnemonic == Mnemonic::JMP)
     {
-        DstOperand dst = parse_DstOperand(input);
+        DstOperand dst = parse_DstOperand(input, parse_state);
         if (is_in_Monostate(dst))
         {
             parse_state.messages.push_back(dst_expected);
@@ -420,17 +446,16 @@ static std::optional<Instruction> parse_Instruction(std::istream &input, Assembl
         return Instruction{.mnemonic = mnemonic, .dst = dst};
     }
 
-    SrcOperand src1 = parse_SrcOperand(input);
+    SrcOperand src1 = parse_SrcOperand(input, parse_state);
     if (is_in_Monostate(src1))
     {
         parse_state.messages.push_back(src_expected);
         return {};
     }
 
-    remove_CommentIfHit(input);
     if (mnemonic == Mnemonic::MOV)
     {
-        DstOperand dst = parse_DstOperand(input);
+        DstOperand dst = parse_DstOperand(input, parse_state);
         if (is_in_Monostate(dst))
         {
             parse_state.messages.push_back(dst_expected);
@@ -439,15 +464,14 @@ static std::optional<Instruction> parse_Instruction(std::istream &input, Assembl
         return Instruction{.mnemonic = mnemonic, .src1 = src1, .dst = dst};
     }
 
-    SrcOperand src2 = parse_SrcOperand(input);
+    SrcOperand src2 = parse_SrcOperand(input, parse_state);
     if (is_in_Monostate(src2))
     {
         parse_state.messages.push_back(src_expected);
         return {};
     }
 
-    remove_CommentIfHit(input);
-    DstOperand dst = parse_DstOperand(input);
+    DstOperand dst = parse_DstOperand(input, parse_state);
     if (is_in_Monostate(dst))
     {
         parse_state.messages.push_back(dst_expected);
@@ -487,9 +511,33 @@ void parse_Assembly(std::istream &input, Assembly &assembly, std::vector<std::st
         if (instruction.has_value())
         {
             assembly.instructions.push_back(instruction.value());
+            parse_state.next_instr_addr += instruction.value().size();
+            continue;
         }
 
         input.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    }
+}
+
+
+void preprocess(std::istream &input, std::ostringstream &output)
+{
+    while (input)
+    {
+        std::string line;
+        std::getline(input, line);
+        size_t found_comment_pos = line.find(AssemblyDef::instance.comment);
+
+        if (found_comment_pos != std::string::npos)
+        {
+            output << line.substr(0, found_comment_pos);
+        }
+        else
+        {
+            output << line;
+        }
+
+        output << std::endl;
     }
 }
 
@@ -502,7 +550,13 @@ void assemble(const Assembly &assembly, std::ostream &output, std::vector<std::s
 
 void assemble(std::istream &input, std::ostream &output, std::vector<std::string> &messages)
 {
+    std::ostringstream preprocessed_output;
+    preprocess(input, preprocessed_output);
+
+    std::istringstream clean_input(preprocessed_output.str());
     Assembly assembly;
-    parse_Assembly(input, assembly, messages);
+    parse_Assembly(clean_input, assembly, messages);
+
     assemble(assembly, output, messages);
 }
+
