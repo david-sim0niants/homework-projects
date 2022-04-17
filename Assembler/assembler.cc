@@ -123,7 +123,7 @@ static std::optional<T> parse_Number(std::istream &input)
 {
     auto initial_pos = input.tellg();
 
-    enum NumSystem { DEC = 0b00, OCT = 0b01, HEX = 0b11 } num_system = DEC;
+    enum NumSystem { DEC, OCT, HEX } num_system = DEC;
 
     char chars_left_read = 2;
 
@@ -142,20 +142,24 @@ static std::optional<T> parse_Number(std::istream &input)
         {
             if (c == '0')
             {
-                num_system = NumSystem(num_system | 0b01);
                 continue;
             }
 
             input.seekg(-1, std::ios::cur);
             break;
         }
-        else if (c == 'x')
+        else if (c == 'x') // if seen x after 0, it's hex
         {
-            num_system = NumSystem(num_system | 0b10);
+            num_system = HEX;
         }
-        else
+        else if ('0' <= c && c <= '9') // if seen digit after 0, it's oct, go back by 1
         {
+            num_system = OCT;
             input.seekg(-1, std::ios::cur);
+        }
+        else // if seen another character, go back by 2, the number is just 0
+        {
+            input.seekg(-2, std::ios::cur);
         }
     }
 
@@ -236,6 +240,17 @@ static std::optional<OperandImmediate> parse_Immediate(std::istream &input)
 }
 
 
+static bool is_Alpha(char c)
+{
+    return ('A' <= c && c <= 'Z') || ('a' <= c && c <= 'z');
+}
+
+static bool is_Digit(char c)
+{
+    return '0' <= c && c <= '9';
+}
+
+
 static std::string parse_Identifier(std::istream &input)
 {
     int chars_read = 0;
@@ -253,7 +268,7 @@ static std::string parse_Identifier(std::istream &input)
                 continue;
             }
 
-            if ((c < 'A' || c > 'Z') && (c < 'a' || c > 'z') && c != '.' && c != '_')
+            if (!is_Alpha(c) && c != '.' && c != '_')
             {
                 break;
             }
@@ -262,9 +277,7 @@ static std::string parse_Identifier(std::istream &input)
         }
         else
         {
-            if (std::iswspace(c) ||
-                (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') &&
-                (c < '0' || c > '9') && c != '.' && c != '_')
+            if (std::iswspace(c) || !is_Alpha(c) && !is_Digit(c) && c != '.' && c != '_')
             {
                 break;
             }
@@ -773,7 +786,7 @@ static std::optional<char> assemble_SrcOperand(
     }
     else if (auto *label = std::get_if<OperandStr>(&src_operand))
     {
-        is_immediate = false;
+        is_immediate = true;
         return assemble_Label(*label, labels, messages);
     }
     else
