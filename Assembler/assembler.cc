@@ -1,6 +1,5 @@
 #include "assembler.h"
 
-#include <iterator>
 #include <limits>
 #include <sstream>
 #include <string>
@@ -106,10 +105,11 @@ static std::optional<OperandImmediate> parse_Immediate(std::istream &input)
         return {};
     }
 
-    input >> immediate;
+    input >> std::dec >> immediate;
 
     if (input.fail())
     {
+        input.clear();
         input.seekg(initial_pos, std::ios::beg);
         return {};
     }
@@ -267,7 +267,7 @@ static Mnemonic parse_Mnemonic(std::istream &input)
 }
 
 
-static OperandMemLoc parse_Register(std::istream &input)
+static std::optional<OperandMemLoc> parse_Register(std::istream &input)
 {
     auto initial_pos = input.tellg();
 
@@ -293,7 +293,7 @@ static OperandMemLoc parse_Register(std::istream &input)
 
     if (!input && !(std::iswspace(c) || c == AssemblyDef::instance.delimiter))
     {
-        return NUM_REGISTERS;
+        return {};
     }
 
     auto found_it = AssemblyDef::instance.registers.find(std::string{reg_name});
@@ -301,14 +301,14 @@ static OperandMemLoc parse_Register(std::istream &input)
     if (found_it == AssemblyDef::instance.registers.end())
     {
         input.seekg(initial_pos, std::ios::beg);
-        return NUM_REGISTERS;
+        return {};
     }
 
     return found_it->second;
 }
 
 
-static OperandMemLoc parse_Address(std::istream &input)
+static std::optional<OperandMemLoc> parse_Address(std::istream &input, AssemblyParseState &parse_state)
 {
     auto initial_pos = input.tellg();
 
@@ -325,12 +325,13 @@ static OperandMemLoc parse_Address(std::istream &input)
     }
 
     OperandMemLoc addr;
-    input >> addr;
+    input >> std::hex >> addr;
 
     if (input.fail())
     {
+        input.clear();
         input.seekg(initial_pos, std::ios::beg);
-        return 0;
+        return {};
     }
 
     if (input)
@@ -341,28 +342,34 @@ static OperandMemLoc parse_Address(std::istream &input)
         if (!(std::iswspace(c) || c == AssemblyDef::instance.delimiter))
         {
             input.seekg(initial_pos, std::ios::beg);
-            return 0;
+            return {};
         }
+    }
+
+    if (addr < NUM_REGISTERS)
+    {
+        parse_state.messages.push_back("Address lower than number of registers.");
+        input.seekg(initial_pos, std::ios::beg);
+        return {};
     }
 
     return addr;
 }
 
 
-static std::optional<OperandMemLoc> parse_MemoryLocation(std::istream &input)
+static std::optional<OperandMemLoc> parse_MemoryLocation(std::istream &input, AssemblyParseState &parse_state)
 {
-    OperandMemLoc mem_loc = parse_Register(input);
-
-    if (mem_loc < NUM_REGISTERS)
+    auto mem_loc = parse_Register(input);
+    if (mem_loc.has_value())
     {
         return mem_loc;
     }
 
-    // mem_loc = parse_Address(input);
-    // if (mem_loc >= NUM_REGISTERS)
-    // {
-    //     return mem_loc;
-    // }
+    mem_loc = parse_Address(input, parse_state);
+    if (mem_loc.has_value())
+    {
+        return mem_loc;
+    }
 
     return {};
 }
@@ -370,7 +377,7 @@ static std::optional<OperandMemLoc> parse_MemoryLocation(std::istream &input)
 
 static SrcOperand parse_SrcOperand(std::istream &input, AssemblyParseState &parse_state)
 {
-    auto mem_loc = parse_MemoryLocation(input);
+    auto mem_loc = parse_MemoryLocation(input, parse_state);
     if (mem_loc.has_value())
     {
         return mem_loc.value();
@@ -401,22 +408,23 @@ static SrcOperand parse_SrcOperand(std::istream &input, AssemblyParseState &pars
 
 static DstOperand parse_DstOperand(std::istream &input, AssemblyParseState &parse_state)
 {
-    auto mem_loc = parse_MemoryLocation(input);
+    auto mem_loc = parse_MemoryLocation(input, parse_state);
     if (mem_loc.has_value())
     {
         return mem_loc.value();
     }
 
     std::string label = parse_Identifier(input);
-    if (!label.empty())
-    {
-        return label;
-    }
 
     if (check_if_Reserved(label))
     {
         parse_state.messages.push_back("Invalid label - " + label);
         return {};
+    }
+
+    if (!label.empty())
+    {
+        return label;
     }
 
     return std::monostate{};
