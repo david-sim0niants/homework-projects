@@ -8,21 +8,17 @@
 #include <optional>
 
 
-struct AssemblyParseState
-{
-    uint32_t next_instr_addr = 0;
-    Label2Int_Map &labels;
-    Label2Int_Map::iterator last_defined_label_it = {};
-    std::vector<std::string> &messages;
-};
-
-
+// Some constant definitions of the assembly language
 class AssemblyDef
 {
 public:
+    // sign that must be put before immediates to differentiate them from addresses like #1 #2 #3
     char immediate_sign = '#';
+    // delimiter that can be put between operands and nowhere else
     char delimiter = ',';
+    // sign that starts a comment
     const char *comment = "//";
+    // mnemonic string to mnemonic itself
     std::unordered_map<std::string, Mnemonic> mnemonics = {
         {"ADD", Mnemonic::ADD}, {"add", Mnemonic::ADD},
         {"SUB", Mnemonic::SUB}, {"sub", Mnemonic::SUB},
@@ -41,12 +37,15 @@ public:
         {"MOV", Mnemonic::MOV}, {"mov", Mnemonic::MOV},
         {"NOP", Mnemonic::NOP}, {"nop", Mnemonic::NOP},
     };
-    std::unordered_map<std::string, size_t> registers;
+    // register name to its index mapping
+    std::unordered_map<std::string, unsigned int> registers;
 
+    // binary definitions
     static constexpr unsigned char CONDITIONAL_BIT = 0x20;
     static constexpr unsigned char FIRST_IMMEDIATE_BIT = 0x40;
     static constexpr unsigned char SECOND_IMMEDIATE_BIT = 0x80;
 
+    // mnemonic to opcode mappings
     std::unordered_map<Mnemonic, unsigned char> opcodes = {
         {Mnemonic::ADD, 0},
         {Mnemonic::SUB, 1},
@@ -66,13 +65,17 @@ public:
         {Mnemonic::NOP, 3}
     };
 
+    // singleton
     static const AssemblyDef instance;
+    // max mnemonic name length
     static constexpr unsigned int MAX_MNM_LEN = 3;
+    // max register name length
     static constexpr unsigned int MAX_REG_LEN = 3;
 
 private:
     AssemblyDef()
     {
+        // register map initializer
         for (unsigned int i = 0; i < NUM_REGISTERS; ++i)
         {
             std::string i_str = std::to_string(i);
@@ -88,10 +91,11 @@ private:
     }
 };
 
-
+// singleton definition
 inline const AssemblyDef AssemblyDef::instance;
 
 
+// helper function to check if a variant is in a monostate (has no value)
 template<typename... Types>
 static bool is_in_Monostate(std::variant<Types...> variant)
 {
@@ -99,6 +103,21 @@ static bool is_in_Monostate(std::variant<Types...> variant)
 }
 
 
+// holds data and references to data needed for parsing functions
+struct AssemblyParseState
+{
+    // next instruction address
+    uint32_t next_instr_addr = 0;
+    // ref to label map
+    Label2Int_Map &labels;
+    // last label iterator added to the map
+    Label2Int_Map::iterator last_defined_label_it = {};
+    // assembler messages
+    std::vector<std::string> &messages;
+};
+
+
+// parse immediate
 static std::optional<OperandImmediate> parse_Immediate(std::istream &input)
 {
     auto initial_pos = input.tellg();
@@ -117,6 +136,8 @@ static std::optional<OperandImmediate> parse_Immediate(std::istream &input)
 
         if (c != AssemblyDef::instance.immediate_sign)
         {
+            // go to the previous position in file if failed
+            // note this pattern repeats a lot
             input.seekg(initial_pos, std::ios::beg);
             return {};
         }
@@ -130,11 +151,12 @@ static std::optional<OperandImmediate> parse_Immediate(std::istream &input)
         return {};
     }
 
+    // immediates must be decimal numbers in oppose to addresses
     input >> std::dec >> immediate;
 
     if (input.fail())
     {
-        input.clear();
+        input.clear(); // clear fail bits from stream
         input.seekg(initial_pos, std::ios::beg);
         return {};
     }
@@ -144,6 +166,8 @@ static std::optional<OperandImmediate> parse_Immediate(std::istream &input)
         char c;
         input >> c;
 
+        // whitespace or delimiter checks
+        // note this pattern repeats a lot
         if (!std::iswspace(c) && c != AssemblyDef::instance.delimiter)
         {
             input.seekg(initial_pos, std::ios::beg);
@@ -195,10 +219,12 @@ static std::string parse_Identifier(std::istream &input)
 
     if (identifier.empty())
     {
+        // go chars_read + 1 back if failed to parse an identifier
         input.seekg(-chars_read - 1, std::ios::cur);
     }
     else
     {
+        // go -1 back if identifier could be parsed
         input.seekg(-1, std::ios::cur);
     }
 
@@ -206,6 +232,7 @@ static std::string parse_Identifier(std::istream &input)
 }
 
 
+// check if an identifier is a reserved keyword in assembly, it can be a mnemonic or register name
 static bool check_if_Reserved(std::string &identifier)
 {
     return !
@@ -215,6 +242,7 @@ static bool check_if_Reserved(std::string &identifier)
 }
 
 
+// parse label definition
 static bool parse_LabelDef(std::istream &input, AssemblyParseState &parse_state)
 {
     auto initial_pos = input.tellg();
@@ -268,14 +296,17 @@ static bool parse_LabelDef(std::istream &input, AssemblyParseState &parse_state)
 }
 
 
+// parse mnemonic
 static Mnemonic parse_Mnemonic(std::istream &input)
 {
     auto initial_pos = input.tellg();
 
+    // probably the only parser function that temporary enables whitespace skips
+    // to parse a token that can't have various signs like commas, colons...
     std::string token;
     input.setf(std::ios::skipws);
     input >> token;
-    input.unsetf(std::ios::skipws);
+    input.unsetf(std::ios::skipws); // disable whitespace skips
 
     auto &mnemonics = AssemblyDef::instance.mnemonics;
 
@@ -292,6 +323,7 @@ static Mnemonic parse_Mnemonic(std::istream &input)
 }
 
 
+// parse register name
 static std::optional<OperandMemLoc> parse_Register(std::istream &input)
 {
     auto initial_pos = input.tellg();
@@ -333,7 +365,8 @@ static std::optional<OperandMemLoc> parse_Register(std::istream &input)
 }
 
 
-static std::optional<OperandMemLoc> parse_Address(std::istream &input, AssemblyParseState &parse_state)
+// parse address
+static std::optional<OperandMemLoc> parse_Address(std::istream &input)
 {
     auto initial_pos = input.tellg();
 
@@ -350,6 +383,7 @@ static std::optional<OperandMemLoc> parse_Address(std::istream &input, AssemblyP
     }
 
     OperandMemLoc addr;
+    // addresses must be hexadecimal in oppose to immediates
     input >> std::hex >> addr;
 
     if (input.fail())
@@ -371,28 +405,24 @@ static std::optional<OperandMemLoc> parse_Address(std::istream &input, AssemblyP
         }
     }
 
-    if (addr < NUM_REGISTERS)
-    {
-        parse_state.messages.push_back("Address lower than number of registers.");
-        input.seekg(initial_pos, std::ios::beg);
-        return {};
-    }
-
     return addr;
 }
 
 
-static std::optional<OperandMemLoc> parse_MemoryLocation(std::istream &input, AssemblyParseState &parse_state)
+// parse any memory location
+static std::optional<OperandMemLoc> parse_MemoryLocation(std::istream &input, bool &is_address)
 {
     auto mem_loc = parse_Register(input);
     if (mem_loc.has_value())
     {
+        is_address = false;
         return mem_loc;
     }
 
-    mem_loc = parse_Address(input, parse_state);
+    mem_loc = parse_Address(input);
     if (mem_loc.has_value())
     {
+        is_address = true;
         return mem_loc;
     }
 
@@ -400,11 +430,18 @@ static std::optional<OperandMemLoc> parse_MemoryLocation(std::istream &input, As
 }
 
 
+// parse source operand
 static SrcOperand parse_SrcOperand(std::istream &input, AssemblyParseState &parse_state)
 {
-    auto mem_loc = parse_MemoryLocation(input, parse_state);
+    bool is_mem_loc_addr = false;
+    auto mem_loc = parse_MemoryLocation(input, is_mem_loc_addr);
     if (mem_loc.has_value())
     {
+        if (is_mem_loc_addr && mem_loc.value() < NUM_REGISTERS)
+        {
+            parse_state.messages.push_back("Address as a source operand can't be lower than number of registers.");
+            return std::monostate{};
+        }
         return mem_loc.value();
     }
 
@@ -414,6 +451,7 @@ static SrcOperand parse_SrcOperand(std::istream &input, AssemblyParseState &pars
         return immediate.value();
     }
 
+
     std::string label = parse_Identifier(input);
 
     if (check_if_Reserved(label))
@@ -431,11 +469,25 @@ static SrcOperand parse_SrcOperand(std::istream &input, AssemblyParseState &pars
 }
 
 
-static DstOperand parse_DstOperand(std::istream &input, AssemblyParseState &parse_state)
+// parse destination operand
+static DstOperand parse_DstOperand(std::istream &input, AssemblyParseState &parse_state, bool address_only)
 {
-    auto mem_loc = parse_MemoryLocation(input, parse_state);
+    bool is_mem_loc_addr = false;
+    auto mem_loc = parse_MemoryLocation(input, is_mem_loc_addr);
     if (mem_loc.has_value())
     {
+        if (address_only && !is_mem_loc_addr)
+        {
+            parse_state.messages.push_back("Destination operand must be an address or a label in this context.");
+            return std::monostate{};
+        }
+        if (!address_only && is_mem_loc_addr && mem_loc.value() < NUM_REGISTERS)
+        {
+            parse_state.messages.push_back("Address as destination operand can't be "
+                                           "lower than number of registers in this context.");
+            return std::monostate{};
+        }
+
         return mem_loc.value();
     }
 
@@ -456,6 +508,21 @@ static DstOperand parse_DstOperand(std::istream &input, AssemblyParseState &pars
 }
 
 
+// check if mnemonic is a one of jumping mnemonics
+static bool is_JMP(Mnemonic mnemonic)
+{
+    return
+    mnemonic == Mnemonic::JE ||
+    mnemonic == Mnemonic::JNE||
+    mnemonic == Mnemonic::JLT||
+    mnemonic == Mnemonic::JLE||
+    mnemonic == Mnemonic::JGT||
+    mnemonic == Mnemonic::JGE||
+    mnemonic == Mnemonic::JMP;
+}
+
+
+// parse instruction
 static std::optional<Instruction> parse_Instruction(std::istream &input, AssemblyParseState &parse_state)
 {
     Mnemonic mnemonic = parse_Mnemonic(input);
@@ -468,14 +535,14 @@ static std::optional<Instruction> parse_Instruction(std::istream &input, Assembl
         return {};
     }
 
-    if (mnemonic == Mnemonic::NOP)
+    if (mnemonic == Mnemonic::NOP) // nop doesn't require any operands
     {
         return Instruction{.mnemonic = mnemonic};
     }
 
-    if (mnemonic == Mnemonic::JMP)
+    if (mnemonic == Mnemonic::JMP) // jmp requires a single operand
     {
-        DstOperand dst = parse_DstOperand(input, parse_state);
+        DstOperand dst = parse_DstOperand(input, parse_state, true);
         if (is_in_Monostate(dst))
         {
             parse_state.messages.push_back(dst_expected);
@@ -491,9 +558,9 @@ static std::optional<Instruction> parse_Instruction(std::istream &input, Assembl
         return {};
     }
 
-    if (mnemonic == Mnemonic::MOV)
+    if (mnemonic == Mnemonic::MOV) // mov requires two operands
     {
-        DstOperand dst = parse_DstOperand(input, parse_state);
+        DstOperand dst = parse_DstOperand(input, parse_state, false);
         if (is_in_Monostate(dst))
         {
             parse_state.messages.push_back(dst_expected);
@@ -509,7 +576,11 @@ static std::optional<Instruction> parse_Instruction(std::istream &input, Assembl
         return {};
     }
 
-    DstOperand dst = parse_DstOperand(input, parse_state);
+    // any other mnemonics require all three operands
+
+    // jumping mnemonics require destination operand to be an address in memory or a label
+
+    DstOperand dst = parse_DstOperand(input, parse_state, is_JMP(mnemonic));
     if (is_in_Monostate(dst))
     {
         parse_state.messages.push_back(dst_expected);
@@ -520,6 +591,7 @@ static std::optional<Instruction> parse_Instruction(std::istream &input, Assembl
 }
 
 
+// parse assembly
 void parse_Assembly(std::istream &input, Assembly &assembly, std::vector<std::string> &messages)
 {
     AssemblyParseState parse_state {
@@ -527,6 +599,7 @@ void parse_Assembly(std::istream &input, Assembly &assembly, std::vector<std::st
         .messages = messages
     };
 
+    // disable skipping whitespaces
     input.unsetf(std::ios::skipws);
 
     while (input)
@@ -558,6 +631,7 @@ void parse_Assembly(std::istream &input, Assembly &assembly, std::vector<std::st
 }
 
 
+// preprocess input aka remove comments
 static void preprocess(std::istream &input, std::ostringstream &output)
 {
     while (input)
@@ -580,6 +654,7 @@ static void preprocess(std::istream &input, std::ostringstream &output)
 }
 
 
+// convert mnemonic to opcode
 static inline std::optional<unsigned char> assemble_Mnemonic(Mnemonic mnemonic, std::vector<std::string> &messages)
 {
     auto found_opcode = AssemblyDef::instance.opcodes.find(mnemonic);
@@ -593,6 +668,7 @@ static inline std::optional<unsigned char> assemble_Mnemonic(Mnemonic mnemonic, 
 }
 
 
+// convert memory location to binary representation
 static inline std::optional<unsigned char> assemble_MemLoc(OperandMemLoc mem_loc, std::vector<std::string> &messages)
 {
     if (mem_loc >= OPERAND_VALUE_LIMIT)
@@ -607,6 +683,7 @@ static inline std::optional<unsigned char> assemble_MemLoc(OperandMemLoc mem_loc
 }
 
 
+// convert immediate value to binary representation
 static inline std::optional<unsigned char> assemble_Immediate(OperandImmediate immediate, std::vector<std::string> &messages)
 {
     if (static_cast<std::make_unsigned<decltype(immediate)>::type>(immediate) >= OPERAND_VALUE_LIMIT)
@@ -619,6 +696,7 @@ static inline std::optional<unsigned char> assemble_Immediate(OperandImmediate i
 }
 
 
+// convert label to address or constant and convert it to binary representation
 static inline std::optional<unsigned char> assemble_Label(
         const OperandStr &label, const Label2Int_Map &labels, std::vector<std::string> &messages
     )
@@ -641,6 +719,7 @@ static inline std::optional<unsigned char> assemble_Label(
 }
 
 
+// convert source operand to binary representation and tell if it was immediate
 static std::optional<unsigned char> assemble_SrcOperand(
         const SrcOperand &src_operand,
         const Label2Int_Map &labels,
@@ -665,11 +744,12 @@ static std::optional<unsigned char> assemble_SrcOperand(
     }
     else
     {
-        return 0;
+        return 0; // if source operand is empty, 0 is the default binary for it
     }
 }
 
 
+// convert destination operand to binary representation
 static std::optional<unsigned char> assemble_DstOperand(
         const DstOperand &dst_operand,
         const Label2Int_Map &labels,
@@ -686,11 +766,12 @@ static std::optional<unsigned char> assemble_DstOperand(
     }
     else
     {
-        return 0;
+        return 0; // if destination operand is empty, 0 is the default binary for it
     }
 }
 
 
+// assemble parsed assembly
 bool assemble(const Assembly &assembly, std::ostream &output, std::vector<std::string> &messages)
 {
     bool keep_assembling = true;
@@ -702,6 +783,7 @@ bool assemble(const Assembly &assembly, std::ostream &output, std::vector<std::s
         auto src2_val = assemble_SrcOperand(instr.src2, assembly.labels, second_immediate, messages);
         auto dst_val  = assemble_DstOperand(instr.dst,  assembly.labels, messages);
 
+        // if an error happens, no further assembling keeps on but the assembly code will still continue being analyzed
         if (keep_assembling && !(opcode.has_value() && src1_val.has_value() && src2_val.has_value() && dst_val.has_value()))
             keep_assembling = false;
 
@@ -717,24 +799,24 @@ bool assemble(const Assembly &assembly, std::ostream &output, std::vector<std::s
         }
     }
 
-    if (!keep_assembling)
-    {
-        output.fail();
-    }
-
+    // success or fail
     return keep_assembling;
 }
 
 
+// final assemble function
 bool assemble(std::istream &input, std::ostream &output, std::vector<std::string> &messages)
 {
+    // preprocess input
     std::ostringstream preprocessed_output;
     preprocess(input, preprocessed_output);
 
+    // parse clean input
     std::istringstream clean_input(preprocessed_output.str());
     Assembly assembly;
     parse_Assembly(clean_input, assembly, messages);
 
+    // assemble parsed assembly
     return assemble(assembly, output, messages);
 }
 
