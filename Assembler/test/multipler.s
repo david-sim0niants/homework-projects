@@ -4,5 +4,7 @@ start:
     MUL r0, r1, r2 // multiply r0 and r1, store on r2
     MOV r2, io // mov r2 to output
 
-    // jump to start if r2 greater than 10 (for no reason)
-    JGT r2, #10, start
+    // jump to start if r2 greater than 010 aka 8 (for no reason)
+    JGT r2, #010, start
+this:
+    JMP this

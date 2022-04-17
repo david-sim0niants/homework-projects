@@ -117,31 +117,60 @@ struct AssemblyParseState
 };
 
 
-// parse immediate
-static std::optional<OperandImmediate> parse_Immediate(std::istream &input)
+// parse number
+template<typename T>
+static std::optional<T> parse_Number(std::istream &input)
 {
     auto initial_pos = input.tellg();
 
-    OperandImmediate immediate;
+    enum NumSystem { DEC = 0b00, OCT = 0b01, HEX = 0b11 } num_system = DEC;
 
-    while (input)
+    char chars_left_read = 2;
+
+    while (input && chars_left_read > 0)
     {
         char c;
         input >> c;
+        --chars_left_read;
 
         if (std::iswspace(c))
         {
             continue;
         }
 
-        if (c != AssemblyDef::instance.immediate_sign)
+        if (chars_left_read == 1)
         {
-            // go to the previous position in file if failed
-            // note this pattern repeats a lot
-            input.seekg(initial_pos, std::ios::beg);
-            return {};
-        }
+            if (c == '0')
+            {
+                num_system = NumSystem(num_system | 0b01);
+                continue;
+            }
 
+            input.seekg(-1, std::ios::cur);
+            break;
+        }
+        else if (c == 'x')
+        {
+            num_system = NumSystem(num_system | 0b10);
+        }
+        else
+        {
+            input.seekg(-1, std::ios::cur);
+        }
+    }
+
+    switch (num_system)
+    {
+    case DEC:
+        input >> std::dec;
+        break;
+    case OCT:
+        input >> std::oct;
+        break;
+    case HEX:
+        input >> std::hex;
+        break;
+    default:
         break;
     }
 
@@ -151,8 +180,8 @@ static std::optional<OperandImmediate> parse_Immediate(std::istream &input)
         return {};
     }
 
-    // immediates must be decimal numbers in oppose to addresses
-    input >> std::dec >> immediate;
+    T number;
+    input >> number;
 
     if (input.fail())
     {
@@ -175,7 +204,35 @@ static std::optional<OperandImmediate> parse_Immediate(std::istream &input)
         }
     }
 
-    return immediate;
+    return number;
+}
+
+
+// parse immediate
+static std::optional<OperandImmediate> parse_Immediate(std::istream &input)
+{
+    while (input)
+    {
+        char c;
+        input >> c;
+
+        if (std::iswspace(c))
+        {
+            continue;
+        }
+
+        if (c != AssemblyDef::instance.immediate_sign)
+        {
+            // go to the previous position in file if failed
+            // note this pattern repeats a lot
+            input.seekg(-1, std::ios::cur);
+            return {};
+        }
+
+        break;
+    }
+
+    return parse_Number<OperandImmediate>(input);
 }
 
 
@@ -382,30 +439,7 @@ static std::optional<OperandMemLoc> parse_Address(std::istream &input)
         }
     }
 
-    OperandMemLoc addr;
-    // addresses must be hexadecimal in oppose to immediates
-    input >> std::hex >> addr;
-
-    if (input.fail())
-    {
-        input.clear();
-        input.seekg(initial_pos, std::ios::beg);
-        return {};
-    }
-
-    if (input)
-    {
-        char c;
-        input >> c;
-
-        if (!(std::iswspace(c) || c == AssemblyDef::instance.delimiter))
-        {
-            input.seekg(initial_pos, std::ios::beg);
-            return {};
-        }
-    }
-
-    return addr;
+    return parse_Number<OperandMemLoc>(input);
 }
 
 
