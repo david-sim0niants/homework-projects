@@ -46,7 +46,7 @@ public:
     static constexpr unsigned char SECOND_IMMEDIATE_BIT = 0x80;
 
     // mnemonic to opcode mappings
-    std::unordered_map<Mnemonic, unsigned char> opcodes = {
+    std::unordered_map<Mnemonic, char> opcodes = {
         {Mnemonic::ADD, 0},
         {Mnemonic::SUB, 1},
         {Mnemonic::AND, 2},
@@ -689,7 +689,7 @@ static void preprocess(std::istream &input, std::ostringstream &output)
 
 
 // convert mnemonic to opcode
-static inline std::optional<unsigned char> assemble_Mnemonic(Mnemonic mnemonic, std::vector<std::string> &messages)
+static inline std::optional<char> assemble_Mnemonic(Mnemonic mnemonic, std::vector<std::string> &messages)
 {
     auto found_opcode = AssemblyDef::instance.opcodes.find(mnemonic);
     if (found_opcode == AssemblyDef::instance.opcodes.end())
@@ -703,7 +703,7 @@ static inline std::optional<unsigned char> assemble_Mnemonic(Mnemonic mnemonic, 
 
 
 // convert memory location to binary representation
-static inline std::optional<unsigned char> assemble_MemLoc(OperandMemLoc mem_loc, std::vector<std::string> &messages)
+static inline std::optional<char> assemble_MemLoc(OperandMemLoc mem_loc, std::vector<std::string> &messages)
 {
     if (mem_loc >= OPERAND_VALUE_LIMIT)
     {
@@ -718,20 +718,20 @@ static inline std::optional<unsigned char> assemble_MemLoc(OperandMemLoc mem_loc
 
 
 // convert immediate value to binary representation
-static inline std::optional<unsigned char> assemble_Immediate(OperandImmediate immediate, std::vector<std::string> &messages)
+static inline std::optional<char> assemble_Immediate(OperandImmediate immediate, std::vector<std::string> &messages)
 {
-    if (static_cast<std::make_unsigned<decltype(immediate)>::type>(immediate) >= OPERAND_VALUE_LIMIT)
+    if (static_cast<uint32_t>(immediate) >= OPERAND_VALUE_LIMIT)
     {
         messages.push_back("Unsigned value of immediate can't be larger or equal than " + std::to_string(OPERAND_VALUE_LIMIT) + '.');
         return {};
     }
 
-    return immediate;
+    return static_cast<char>(immediate);
 }
 
 
 // convert label to address or constant and convert it to binary representation
-static inline std::optional<unsigned char> assemble_Label(
+static inline std::optional<char> assemble_Label(
         const OperandStr &label, const Label2Int_Map &labels, std::vector<std::string> &messages
     )
 {
@@ -743,18 +743,18 @@ static inline std::optional<unsigned char> assemble_Label(
 
     int32_t label_val = labels.at(label);
 
-    if (static_cast<std::make_unsigned<decltype(label_val)>::type>(label_val) >= OPERAND_VALUE_LIMIT)
+    if (static_cast<uint32_t>(label_val) >= OPERAND_VALUE_LIMIT)
     {
         messages.push_back("Unsigned value of label can't be larger or equal than " + std::to_string(OPERAND_VALUE_LIMIT) + '.');
         return {};
     }
 
-    return label_val;
+    return static_cast<char>(label_val);
 }
 
 
 // convert source operand to binary representation and tell if it was immediate
-static std::optional<unsigned char> assemble_SrcOperand(
+static std::optional<char> assemble_SrcOperand(
         const SrcOperand &src_operand,
         const Label2Int_Map &labels,
         bool &is_immediate,
@@ -784,7 +784,7 @@ static std::optional<unsigned char> assemble_SrcOperand(
 
 
 // convert destination operand to binary representation
-static std::optional<unsigned char> assemble_DstOperand(
+static std::optional<char> assemble_DstOperand(
         const DstOperand &dst_operand,
         const Label2Int_Map &labels,
         std::vector<std::string> &messages
@@ -828,8 +828,8 @@ bool assemble(const Assembly &assembly, std::ostream &output, std::vector<std::s
             if (second_immediate)
                 opcode.value() |= AssemblyDef::SECOND_IMMEDIATE_BIT;
 
-            unsigned char binary_instr[4] = {opcode.value(), src1_val.value(), src2_val.value(), dst_val.value()};
-            output.write(reinterpret_cast<char *>(binary_instr), 4);
+            char binary_instr[4] = {opcode.value(), src1_val.value(), src2_val.value(), dst_val.value()};
+            output.write(binary_instr, 4);
         }
     }
 
