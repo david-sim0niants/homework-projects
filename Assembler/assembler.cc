@@ -3,6 +3,7 @@
 #include <limits>
 #include <sstream>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 #include <optional>
 
@@ -10,8 +11,8 @@
 struct AssemblyParseState
 {
     uint32_t next_instr_addr = 0;
-    std::unordered_map<std::string, int32_t> &labels;
-    std::remove_reference<decltype(labels)>::type::iterator last_defined_label_it = {}; // zakayf
+    Label2Int_Map &labels;
+    Label2Int_Map::iterator last_defined_label_it = {};
     std::vector<std::string> &messages;
 };
 
@@ -38,8 +39,32 @@ public:
         {"JGE", Mnemonic::JGE}, {"jge", Mnemonic::JGE},
         {"JMP", Mnemonic::JMP}, {"jmp", Mnemonic::JMP},
         {"MOV", Mnemonic::MOV}, {"mov", Mnemonic::MOV},
+        {"NOP", Mnemonic::NOP}, {"nop", Mnemonic::NOP},
     };
     std::unordered_map<std::string, size_t> registers;
+
+    static constexpr unsigned char CONDITIONAL_BIT = 0x20;
+    static constexpr unsigned char FIRST_IMMEDIATE_BIT = 0x40;
+    static constexpr unsigned char SECOND_IMMEDIATE_BIT = 0x80;
+
+    std::unordered_map<Mnemonic, unsigned char> opcodes = {
+        {Mnemonic::ADD, 0},
+        {Mnemonic::SUB, 1},
+        {Mnemonic::AND, 2},
+        {Mnemonic::OR,  3},
+        {Mnemonic::NOT, 4},
+        {Mnemonic::XOR, 5},
+        {Mnemonic::MUL, 6},
+        {Mnemonic::JE,  0 | CONDITIONAL_BIT},
+        {Mnemonic::JNE, 1 | CONDITIONAL_BIT},
+        {Mnemonic::JLT, 2 | CONDITIONAL_BIT},
+        {Mnemonic::JLE, 3 | CONDITIONAL_BIT},
+        {Mnemonic::JGT, 4 | CONDITIONAL_BIT},
+        {Mnemonic::JGE, 5 | CONDITIONAL_BIT},
+        {Mnemonic::JMP, 0 | CONDITIONAL_BIT | FIRST_IMMEDIATE_BIT | SECOND_IMMEDIATE_BIT},
+        {Mnemonic::MOV, 3 | SECOND_IMMEDIATE_BIT},
+        {Mnemonic::NOP, 3}
+    };
 
     static const AssemblyDef instance;
     static constexpr unsigned int MAX_MNM_LEN = 3;
@@ -68,7 +93,7 @@ inline const AssemblyDef AssemblyDef::instance;
 
 
 template<typename... Types>
-bool is_in_Monostate(std::variant<Types...> variant)
+static bool is_in_Monostate(std::variant<Types...> variant)
 {
     return std::holds_alternative<std::monostate>(variant);
 }
@@ -443,6 +468,11 @@ static std::optional<Instruction> parse_Instruction(std::istream &input, Assembl
         return {};
     }
 
+    if (mnemonic == Mnemonic::NOP)
+    {
+        return Instruction{.mnemonic = mnemonic};
+    }
+
     if (mnemonic == Mnemonic::JMP)
     {
         DstOperand dst = parse_DstOperand(input, parse_state);
@@ -528,7 +558,7 @@ void parse_Assembly(std::istream &input, Assembly &assembly, std::vector<std::st
 }
 
 
-void preprocess(std::istream &input, std::ostringstream &output)
+static void preprocess(std::istream &input, std::ostringstream &output)
 {
     while (input)
     {
@@ -550,13 +580,153 @@ void preprocess(std::istream &input, std::ostringstream &output)
 }
 
 
-void assemble(const Assembly &assembly, std::ostream &output, std::vector<std::string> &messages)
+static inline std::optional<unsigned char> assemble_Mnemonic(Mnemonic mnemonic, std::vector<std::string> &messages)
 {
+    auto found_opcode = AssemblyDef::instance.opcodes.find(mnemonic);
+    if (found_opcode == AssemblyDef::instance.opcodes.end())
+    {
+        messages.push_back("Unknown instruction.");
+        return {};
+    }
 
+    return found_opcode->second;
 }
 
 
-void assemble(std::istream &input, std::ostream &output, std::vector<std::string> &messages)
+static inline std::optional<unsigned char> assemble_MemLoc(OperandMemLoc mem_loc, std::vector<std::string> &messages)
+{
+    if (mem_loc >= OPERAND_VALUE_LIMIT)
+    {
+        std::stringstream stream;
+        stream << "Memory location can't be larger or equal than 0x" << std::hex << OPERAND_VALUE_LIMIT << '.';
+        messages.push_back(stream.str());
+        return {};
+    }
+
+    return mem_loc;
+}
+
+
+static inline std::optional<unsigned char> assemble_Immediate(OperandImmediate immediate, std::vector<std::string> &messages)
+{
+    if (static_cast<std::make_unsigned<decltype(immediate)>::type>(immediate) >= OPERAND_VALUE_LIMIT)
+    {
+        messages.push_back("Unsigned value of immediate can't be larger or equal than " + std::to_string(OPERAND_VALUE_LIMIT) + '.');
+        return {};
+    }
+
+    return immediate;
+}
+
+
+static inline std::optional<unsigned char> assemble_Label(
+        const OperandStr &label, const Label2Int_Map &labels, std::vector<std::string> &messages
+    )
+{
+    if (labels.find(label) == labels.end())
+    {
+        messages.push_back("Label " + label + " isn't defined.");
+        return {};
+    }
+
+    int32_t label_val = labels.at(label);
+
+    if (static_cast<std::make_unsigned<decltype(label_val)>::type>(label_val) >= OPERAND_VALUE_LIMIT)
+    {
+        messages.push_back("Unsigned value of label can't be larger or equal than " + std::to_string(OPERAND_VALUE_LIMIT) + '.');
+        return {};
+    }
+
+    return label_val;
+}
+
+
+static std::optional<unsigned char> assemble_SrcOperand(
+        const SrcOperand &src_operand,
+        const Label2Int_Map &labels,
+        bool &is_immediate,
+        std::vector<std::string> &messages
+    )
+{
+    if (auto *mem_loc = std::get_if<OperandMemLoc>(&src_operand))
+    {
+        is_immediate = false;
+        return assemble_MemLoc(*mem_loc, messages);
+    }
+    else if (auto *immediate = std::get_if<OperandImmediate>(&src_operand))
+    {
+        is_immediate = true;
+        return assemble_Immediate(*immediate, messages);
+    }
+    else if (auto *label = std::get_if<OperandStr>(&src_operand))
+    {
+        is_immediate = false;
+        return assemble_Label(*label, labels, messages);
+    }
+    else
+    {
+        return 0;
+    }
+}
+
+
+static std::optional<unsigned char> assemble_DstOperand(
+        const DstOperand &dst_operand,
+        const Label2Int_Map &labels,
+        std::vector<std::string> &messages
+    )
+{
+    if (auto *mem_loc = std::get_if<OperandMemLoc>(&dst_operand))
+    {
+        return assemble_MemLoc(*mem_loc, messages);
+    }
+    else if (auto *label = std::get_if<OperandStr>(&dst_operand))
+    {
+        return assemble_Label(*label, labels, messages);
+    }
+    else
+    {
+        return 0;
+    }
+}
+
+
+bool assemble(const Assembly &assembly, std::ostream &output, std::vector<std::string> &messages)
+{
+    bool keep_assembling = true;
+    for (auto &&instr : assembly.instructions)
+    {
+        bool first_immediate = false, second_immediate = false;
+        auto opcode   = assemble_Mnemonic(instr.mnemonic, messages);
+        auto src1_val = assemble_SrcOperand(instr.src1, assembly.labels, first_immediate, messages);
+        auto src2_val = assemble_SrcOperand(instr.src2, assembly.labels, second_immediate, messages);
+        auto dst_val  = assemble_DstOperand(instr.dst,  assembly.labels, messages);
+
+        if (keep_assembling && !(opcode.has_value() && src1_val.has_value() && src2_val.has_value() && dst_val.has_value()))
+            keep_assembling = false;
+
+        if (keep_assembling)
+        {
+            if (first_immediate)
+                opcode.value() |= AssemblyDef::FIRST_IMMEDIATE_BIT;
+            if (second_immediate)
+                opcode.value() |= AssemblyDef::SECOND_IMMEDIATE_BIT;
+
+            unsigned char binary_instr[4] = {opcode.value(), src1_val.value(), src2_val.value(), dst_val.value()};
+            output.write(reinterpret_cast<char *>(binary_instr), 4);
+        }
+    }
+
+    if (!keep_assembling)
+    {
+        output.fail();
+    }
+
+    return keep_assembling;
+}
+
+
+bool assemble(std::istream &input, std::ostream &output, std::vector<std::string> &messages)
 {
     std::ostringstream preprocessed_output;
     preprocess(input, preprocessed_output);
@@ -565,6 +735,6 @@ void assemble(std::istream &input, std::ostream &output, std::vector<std::string
     Assembly assembly;
     parse_Assembly(clean_input, assembly, messages);
 
-    assemble(assembly, output, messages);
+    return assemble(assembly, output, messages);
 }
 

@@ -11,7 +11,7 @@
 
 enum class Mnemonic
 {
-    NONE, ADD, SUB, OR, NOT, AND, XOR, MUL, JE, JNE, JLT, JLE, JGT, JGE, JMP, MOV
+    NONE, ADD, SUB, OR, NOT, AND, XOR, MUL, JE, JNE, JLT, JLE, JGT, JGE, JMP, MOV, NOP
 };
 
 
@@ -37,11 +37,13 @@ struct Instruction
     }
 };
 
+using Label2Int_Map = std::unordered_map<std::string, int32_t>;
+
 
 struct Assembly
 {
     std::vector<Instruction> instructions;
-    std::unordered_map<std::string, int32_t> labels;
+    Label2Int_Map labels;
 };
 
 
@@ -49,11 +51,12 @@ constexpr unsigned int NUM_GP_REGISTERS = 13;
 constexpr unsigned int IO_REGISTER_INDEX = NUM_GP_REGISTERS + 1;
 constexpr unsigned int COUNTER_INDEX = NUM_GP_REGISTERS + 2;
 constexpr unsigned int NUM_REGISTERS = NUM_GP_REGISTERS + 3;
+constexpr unsigned int OPERAND_VALUE_LIMIT = 1 << (sizeof(unsigned char) * 8);
 
 
 void parse_Assembly(std::istream &input, Assembly &parsed_assembly, std::vector<std::string> &messages);
-void assemble(const Assembly &assembly, std::ostream &output, std::vector<std::string> &messages);
-void assemble(std::istream &input, std::ostream &output, std::vector<std::string> &messages);
+bool assemble(const Assembly &assembly, std::ostream &output, std::vector<std::string> &messages);
+bool assemble(std::istream &input, std::ostream &output, std::vector<std::string> &messages);
 
 
 #endif

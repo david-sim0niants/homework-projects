@@ -8,11 +8,17 @@ label:
     ADD 20, #20, r0
     JGE r0, #10, another_label // jump another_label if r0 >= 10
 // inspired from ARM Assembly, you can set value to counter register like this
-    MOV label, pc
+    MOV #0, pc
 // or r15 is the same as program counter
     MOV #0, r15
-another_label:
 // multiplicate immediates and store result in r1 register
     MUL #10, #20, r1
     // jump to label
     JMP label
+
+    NOP
+    NOP
+    NOP
+    NOP
+another_label:
+    JMP another_label
