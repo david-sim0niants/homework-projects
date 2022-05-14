@@ -1,39 +1,52 @@
 .code16
-.globl _start
-.type _global, @function
+
+.section .boot
+
 
 _start:
+    cli
+    xor %ax, %ax
+    mov %ax, %ds
+    mov %ax, %ss
+    mov %ax, %es
+    mov %ax, %bp
+
+    mov $0x0100, %cx
+    mov $0x7c00, %si
+    mov $0x0600, %di
+    rep movsw
+
+    jmpl $0x0600, $_continue
+
+_continue:
+    sti
+    mov $0x0600, %sp
+
     mov $msg, %si
     call print
+    hlt
 
-    mov $another_msg, %si
-    call print
+.globl print
+.type print, @function
 
 print:
-    # set "write char in TTY mode" mode for 0x10 BIOS interrupt
     mov $0xE, %ah
 
-.print_loop:
-    # load byte from source index %si into %al
+.L_print_loop:
     lodsb
-    # check null char and in this case jump to exit
     cmp $0, %al
-    je .print_exit
+    je .L_print_exit
 
-    # BIOS interrupt to write char in TTY mode
     int $0x10
-    jmp .print_loop
+    jmp .L_print_loop
 
-.print_exit:
+.L_print_exit:
     ret
 
-msg:
-    .asciz "Welcome to MBR World!!"
-another_msg:
-    .asciz "\n\rMBR successfully loaded."
+msg: .asciz "Hello world!"
 
-# fill zeros till reach the 510th byte
+
+# .org 0x7C00
 .zero 510 - (. - _start)
-# MAGIC
 .byte 0x55, 0xAA
 
