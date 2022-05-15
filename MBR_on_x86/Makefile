@@ -1,4 +1,4 @@
-ASM_FILES := $(shell ls *.s)
+ASM_FILES := realmode_main.s boot.s
 OBJ_FILES := $(patsubst %.s, build/%.o, $(ASM_FILES))
 
 LINKED_ELF := build/boot.elf
@@ -7,27 +7,31 @@ LINKED_BIN := build/boot.bin
 
 build: $(LINKED_BIN)
 
-$(OBJ_FILES) : $(ASM_FILES)
-	@echo $@
-	mkdir -p $(dir $@)
-	as -g $(patsubst build/%.o, %.s, $@) -o $@
+mkdir_build:
+	mkdir -p build/
+
+$(OBJ_FILES) : mkdir_build $(ASM_FILES)
+	$(AS) -g $(patsubst build/%.o, %.s, $@) -o $@
 
 $(LINKED_ELF): $(OBJ_FILES)
-	mkdir -p $(dir $@)
-	ld -Tlinker.ld $(OBJ_FILES) -o $(LINKED_ELF)
+	$(LD) -Tlinker.ld $(OBJ_FILES) -o $(LINKED_ELF)
 
 $(LINKED_BIN): $(LINKED_ELF)
-	mkdir -p $(dir $@)
 	objcopy -O binary $(LINKED_ELF) $(LINKED_BIN)
 
 and_run: build run
 
 run:
-	qemu-system-x86_64 build/boot.bin
+	qemu-system-x86_64 -drive file=build/boot.bin,format=raw
 
 debug:
-	qemu-system-x86_64 -s -S build/boot.bin &
-	gdb build/boot.elf
+	qemu-system-x86_64 -s -S -drive file=build/boot.bin,format=raw &
+	gdb build/boot.elf \
+		-ex 'target remote localhost:1234' \
+        -ex 'break *0x7C00' \
+        -ex 'continue'
+
+and_debug: build debug
 
 clean:
 	rm -rf build/

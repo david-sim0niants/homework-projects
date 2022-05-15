@@ -1,6 +1,6 @@
 SECTIONS
 {
-    . = 0x7C00;
+    . = 0x0600;
     .boot : { build/boot.o }
     .text : { *(.text) }
     .data : { *(.data) }
