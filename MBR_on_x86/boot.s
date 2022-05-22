@@ -1,40 +1,20 @@
 .code16
+
 .section .boot
 .extern init_RealMode
 
+
 _start:
-    # disable interrupts
     cli
-    # set segment registers (except cs for a strange reason) to zero
-    xor %ax, %ax
-    mov %ax, %ds
-    mov %ax, %ss
-    mov %ax, %es
-    mov %ax, %bp
-
-    # copy this MBR code to a location 0x600
-    # all the addresses here will be offseted by 0x600 by linker.ld script
-    mov $0x0100, %cx
-    mov $0x7c00, %si
-    mov $0x0600, %di
-    rep movsw
-
-    # continue in a newly copied code
-    jmp _continue
-
-_continue:
-    # enable interrupts
-    sti
-    # set stack pointer
-    mov $0x0600, %sp
-
-    # print "Hello world!"
     mov $msg, %si
     call print
-    hlt
+    call read_Sector
+    jmp init_RealMode
+    
 
 .globl print
 .type print, @function
+
 
 print:
     # enable 'write in tty' mode in BIOS
@@ -52,10 +32,24 @@ print:
 .L_print_exit:
     ret
 
-msg: .asciz "Hello world!"
+
+read_Sector:
+    mov $2,  %ah # BIOS 0x13 interrupt, 2-nd function
+    mov $63, %al # 63 sectors to read
+    mov $0,  %ch # cylinder number 0
+    mov $2,  %cl # sector number 2
+    mov $0,  %dh # head number 0
+    xor %bx, %bx
+    mov %bx, %es # set extended segment register to zero
+    mov $init_RealMode, %bx # 0x7E00 - address 512 bytes after 0x7C00
+                     # where the next sector will be loaded
+    int $0x13
+    ret
 
 
-# .org 0x7C00
+msg: .asciz "Hello world!\r\n"
+
+
 .zero 510 - (. - _start)
 .byte 0x55, 0xAA
 

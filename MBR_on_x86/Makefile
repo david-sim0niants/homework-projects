@@ -1,4 +1,4 @@
-ASM_FILES := realmode_main.s boot.s
+ASM_FILES := boot.s realmode_main.s
 OBJ_FILES := $(patsubst %.s, build/%.o, $(ASM_FILES))
 
 LINKED_ELF := build/boot.elf
@@ -11,10 +11,11 @@ mkdir_build:
 	mkdir -p build/
 
 $(OBJ_FILES) : mkdir_build $(ASM_FILES)
-	$(AS) -g $(patsubst build/%.o, %.s, $@) -o $@
+	$(AS) -mx86-used-note=no $(patsubst build/%.o, %.s, $@) -o $@
 
-$(LINKED_ELF): $(OBJ_FILES)
-	$(LD) -Tlinker.ld $(OBJ_FILES) -o $(LINKED_ELF)
+$(LINKED_ELF): $(BOOT_OBJ_FILE) $(OBJ_FILES)
+	$(LD) -Tlinker.ld $(OBJ_FILES) -o $@
+	# strip --remove-section=.note.gnu.property build/boot.o
 
 $(LINKED_BIN): $(LINKED_ELF)
 	objcopy -O binary $(LINKED_ELF) $(LINKED_BIN)

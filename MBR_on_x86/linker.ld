@@ -1,8 +1,12 @@
 SECTIONS
 {
-    . = 0x0600;
+    . = 0x7c00;
     .boot : { build/boot.o }
-    .text : { *(.text) }
-    .data : { *(.data) }
-    .bss  : { *(.bss)  }
+    /DISCARD/ :
+    {
+        *(.note.gnu.property)
+    }
+    .text : { * }
+    .data : { * }
+    .bss  : { * }
 }

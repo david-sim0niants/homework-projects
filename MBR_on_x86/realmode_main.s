@@ -1,8 +1,12 @@
 .code16
-.globl init_RealMode
-.type init_RealMode, @function
+
+
+.section .text
+
 .extern print
 
+.globl init_RealMode
+.type init_RealMode, @function
 
 init_RealMode:
     mov $msg, %si
@@ -10,4 +14,5 @@ init_RealMode:
     hlt
 
 msg:
-    .asciz "Real mode init"
+    .asciz "Real mode init.\r\n"
+
