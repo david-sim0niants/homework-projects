@@ -1,8 +1,6 @@
 .code16
-
 .section .boot
 .extern init_RealMode
-
 
 _start:
     cli
@@ -14,7 +12,6 @@ _start:
 
 .globl print
 .type print, @function
-
 
 print:
     # enable 'write in tty' mode in BIOS
@@ -32,7 +29,6 @@ print:
 .L_print_exit:
     ret
 
-
 read_Sector:
     mov $2,  %ah # BIOS 0x13 interrupt, 2-nd function
     mov $63, %al # 63 sectors to read
@@ -46,9 +42,7 @@ read_Sector:
     int $0x13
     ret
 
-
 msg: .asciz "Hello world!\r\n"
-
 
 .zero 510 - (. - _start)
 .byte 0x55, 0xAA

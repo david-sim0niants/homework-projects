@@ -1,8 +1,5 @@
 .code16
-
-
 .section .text
-
 .extern print
 
 .globl init_RealMode
